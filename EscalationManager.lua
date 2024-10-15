@@ -181,8 +181,9 @@ do
     function EscalationManager.onEvent(event)
         if event.id == world.event.S_EVENT_BIRTH then
             if event.initiator and event.initiator.getGroup and event.initiator.getPoint and
-                event.initiator.getPlayerName and event.initiator.getCoalition and event.initiator.getPoint and event.initiator.isExist and
-                event.initiator:isExist() and Object.getCategory(event.initiator) == Object.Category.UNIT and
+                event.initiator.getPlayerName and event.initiator.getCoalition and event.initiator.getPoint and
+                event.initiator.isExist and event.initiator:isExist() and Object.getCategory(event.initiator) ==
+                Object.Category.UNIT and
                 (Unit.getCategoryEx(event.initiator) == Unit.Category.AIRPLANE or Unit.getCategoryEx(event.initiator) ==
                     Unit.Category.HELICOPTER) then
                 local pname = event.initiator:getPlayerName()
@@ -974,7 +975,7 @@ do
         end
         timer.scheduleFunction(function()
             self:checkAndSpawnGroups()
-        end, nil, timer.getTime() + 5)
+        end, nil, timer.getTime() + 1)
 
         mist.scheduleFunction(self.checkDeadUnits, {self}, timer.getTime() + 10, 10)
     end
@@ -1005,14 +1006,14 @@ do
                     mist.respawnInZone(groupname, self.name, true)
                     if deadUnits and #deadUnits > 0 then
                         local deadIndex = {}
-                        for _, idx in deadUnits do
-                            deadIndex[idx] = true
+                        for _, name in ipairs(deadUnits) do
+                            deadIndex[name] = true
                         end
                         timer.scheduleFunction(function()
                             local gr = Group.getByName(groupname)
                             if gr then
                                 for _, unit in ipairs(gr:getUnits()) do
-                                    if deadIndex[unit:getNumber()] then
+                                    if deadIndex[unit:getName()] then
                                         unit:destroy()
                                     end
                                 end
@@ -1033,14 +1034,14 @@ do
                     mist.respawnInZone(groupname, self.name, true)
                     if deadUnits and #deadUnits > 0 then
                         local deadIndex = {}
-                        for _, idx in deadUnits do
-                            deadIndex[idx] = true
+                        for _, name in ipairs(deadUnits) do
+                            deadIndex[name] = true
                         end
                         timer.scheduleFunction(function()
                             local gr = Group.getByName(groupname)
                             if gr then
                                 for _, unit in ipairs(gr:getUnits()) do
-                                    if deadIndex[unit:getNumber()] then
+                                    if deadIndex[unit:getName()] then
                                         unit:destroy()
                                     end
                                 end
@@ -1208,15 +1209,15 @@ do
                     self.deadUnits[groupname] = true
                 else
                     self.deadUnits[groupname] = {}
-                    local initialSize = gr:getInitialSize()
-                    if gr:getSize() ~= initialSize then
+                    if gr:getSize() < gr:getInitialSize() then
                         local aliveTable = {}
                         for _, unit in ipairs(gr:getUnits()) do
-                            aliveTable[unit:getNumber()] = true
+                            aliveTable[unit:getName()] = true
                         end
-                        for i = 1, initialSize do
-                            if not aliveTable[i] then
-                                table.insert(self.deadUnits[groupname], i)
+                        for _, unit in pairs(mist.getGroupData(groupname).units) do
+                            local name = unit.unitName
+                            if not aliveTable[name] then
+                                table.insert(self.deadUnits[groupname], name)
                             end
                         end
                     end
@@ -1237,15 +1238,15 @@ do
                 self.deadUnits[groupname] = true
             else
                 self.deadUnits[groupname] = {}
-                local initialSize = gr:getInitialSize()
-                if gr:getSize() ~= initialSize then
+                if gr:getSize() < gr:getInitialSize() then
                     local aliveTable = {}
                     for _, unit in ipairs(gr:getUnits()) do
-                        aliveTable[unit:getNumber()] = true
+                        aliveTable[unit:getName()] = true
                     end
-                    for i = 1, initialSize do
-                        if not aliveTable[i] then
-                            table.insert(self.deadUnits[groupname], i)
+                    for _, unit in pairs(mist.getGroupData(groupname).units) do
+                        local name = unit.unitName
+                        if not aliveTable[name] then
+                            table.insert(self.deadUnits[groupname], name)
                         end
                     end
                 end
