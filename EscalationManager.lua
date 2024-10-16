@@ -445,8 +445,8 @@ do
             EscalationManager.loadSave()
         end
 
-        LogisticsManager.init(EscalationManager)
-        HercCargoDropSupply.init(EscalationManager)
+        LogisticsManager.init()
+        HercCargoDropSupply.init()
 
         for _, zone in ipairs(EscalationManager.zones) do
             zone:init()
@@ -850,7 +850,6 @@ do
     }
     Zone.income = 0
     Zone.deadUnits = {}
-    Zone.manager = EscalationManager
 
     function Zone:new(index, name, point, radius, vertices, props)
         local obj = props or {}
@@ -1299,8 +1298,6 @@ do
 
     LogisticsManager.maxCarriedPilots = 4
 
-    LogisticsManager.manager = EscalationManager
-
     function LogisticsManager.loadSupplies(groupName)
         local gr = Group.getByName(groupName)
         if gr then
@@ -1585,9 +1582,7 @@ do
         end
     end
 
-    function LogisticsManager.init(manager)
-        LogisticsManager.manager = manager
-
+    function LogisticsManager.init()
         local ev = {}
         function ev:onEvent(event)
             LogisticsManager.onEvent(event)
@@ -1601,8 +1596,6 @@ do
     HercCargoDropSupply.allowedCargo = {}
     HercCargoDropSupply.allowedCargo['weapons.bombs.Generic Crate [20000lb]'] = true
     HercCargoDropSupply.herculesRegistry = {} -- {takeoffzone = string, lastlanded = time}
-
-    HercCargoDropSupply.manager = EscalationManager
 
     function HercCargoDropSupply.onEvent(event)
         if event.id == world.event.S_EVENT_SHOT then
@@ -1621,7 +1614,7 @@ do
             if event.initiator and event.initiator:getDesc().typeName == 'Hercules' then
                 local herc = HercCargoDropSupply.herculesRegistry[event.initiator:getName()]
 
-                local zn = HercCargoDropSupply.manager:getZoneByPoint(event.initiator:getPoint())
+                local zn = EscalationManager.getZoneByPoint(event.initiator:getPoint())
                 if zn then
                     if not herc then
                         HercCargoDropSupply.herculesRegistry[event.initiator:getName()] = {
@@ -1648,9 +1641,7 @@ do
         end
     end
 
-    function HercCargoDropSupply.init(manager)
-        HercCargoDropSupply.manager = manager
-
+    function HercCargoDropSupply.init()
         local ev = {}
         function ev:onEvent(event)
             HercCargoDropSupply.onEvent(event)
@@ -1660,7 +1651,7 @@ do
 
     function HercCargoDropSupply.ProcessCargo(shotevent)
         local cargo = shotevent.weapon
-        local zn = HercCargoDropSupply.manager:getZoneByPoint(cargo:getPoint())
+        local zn = EscalationManager.getZoneByPoint(cargo:getPoint())
         if zn and shotevent.initiator and shotevent.initiator:isExist() then
             local herc = HercCargoDropSupply.herculesRegistry[shotevent.initiator:getName()]
             if not herc or herc.takeoffzone == zn.name then
