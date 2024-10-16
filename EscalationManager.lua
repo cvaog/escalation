@@ -190,7 +190,7 @@ do
                 if pname then
                     local pos = event.initiator:getPoint()
                     local zone = EscalationManager.getZoneByPoint(pos)
-                    if zone.side ~= event.initiator:getCoalition() then
+                    if zone and zone.side ~= event.initiator:getCoalition() then
                         local gr = event.initiator:getGroup()
                         if gr then
                             trigger.action.outTextForGroup(gr:getID(), 'Can not spawn in enemy/neutral zone', 5)
