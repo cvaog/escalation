@@ -4,6 +4,12 @@ local MINUTE = 60
 
 local function debugLog(text)
     trigger.action.outText('DEBUG: ' .. tostring(text), 5)
+    env.info('ESCALATION DEBUG: ' .. tostring(text))
+end
+
+local function errorLog(text)
+    trigger.action.outText('ERROR: ' .. tostring(text), 30)
+    env.error('ESCALATION ERROR: ' .. tostring(text))
 end
 
 local function concat(...)
@@ -38,15 +44,61 @@ local function split(inputstr, sep)
     return t
 end
 
-local function hasGroupSam(group)
-    for _, unit in ipairs(group:getUnits()) do
-        if unit.hasAttribute then
-            if initiator:hasAttribute('SAM SR') or initiator:hasAttribute('SAM TR') or initiator:hasAttribute('SAM LL') then
-                return true
+local function randomPick(t, count)
+    if #t <= count then
+        return t
+    end
+    local output = {}
+    local selected = {}
+    for _ = 1, count do
+        local i
+        repeat
+            i = math.random(#t)
+        until not selected[i]
+        table.insert(output, t[i])
+        selected[i] = true
+    end
+    return output
+end
+
+local function tableKeep(t, fnKeep)
+    local j, n = 1, #t
+
+    for i = 1, n do
+        if (fnKeep(t[i])) then
+            if (i ~= j) then
+                t[j] = t[i]
+                t[i] = nil
             end
+            j = j + 1
+        else
+            t[i] = nil
         end
     end
-    return false
+
+    return t
+end
+
+local function saveTable(filename, variablename, data)
+    if not io then
+        return
+    end
+
+    local str = variablename .. ' = ' .. mist.utils.oneLineSerialize(data)
+
+    local file = io.open(filename, 'w')
+    file:write(str)
+    file:close()
+end
+
+local function loadTable(filename)
+    if not lfs then
+        return
+    end
+
+    if lfs.attributes(filename) then
+        dofile(filename)
+    end
 end
 
 local function getPlayerCount()
@@ -101,61 +153,15 @@ local function isGroupLanded(group, ignoreSpeed)
     return true
 end
 
-local function randomPick(t, count)
-    if #t <= count then
-        return t
-    end
-    local output = {}
-    local selected = {}
-    for _ = 1, count do
-        local i
-        repeat
-            i = math.random(#t)
-        until not selected[i]
-        table.insert(output, t[i])
-        selected[i] = true
-    end
-    return output
-end
-
-local function tableKeep(t, fnKeep)
-    local j, n = 1, #t
-
-    for i = 1, n do
-        if (fnKeep(t, i, j)) then
-            if (i ~= j) then
-                t[j] = t[i]
-                t[i] = nil
-            end
-            j = j + 1
+local function checkAndRetainGroupList(t)
+    return tableKeep(t, function(groupname)
+        if not mist.getGroupData(groupname) then
+            errorLog('Group ' .. groupname .. ' does not exists')
+            return false
         else
-            t[i] = nil
+            return true
         end
-    end
-
-    return t
-end
-
-local function saveTable(filename, variablename, data)
-    if not io then
-        return
-    end
-
-    local str = variablename .. ' = ' .. mist.utils.oneLineSerialize(data)
-
-    local file = io.open(filename, 'w')
-    file:write(str)
-    file:close()
-end
-
-local function loadTable(filename)
-    if not lfs then
-        return
-    end
-
-    if lfs.attributes(filename) then
-        dofile(filename)
-    end
+    end)
 end
 
 local zoneTextBackgroundColor = {0.7, 0.7, 0.7, 0.7}
@@ -503,7 +509,13 @@ do
         for _, conn in ipairs(connections) do
             local from = EscalationManager.getZoneByName(conn.from)
             local to = EscalationManager.getZoneByName(conn.to)
-            EscalationManager.addZoneConnection(from, to)
+            if not from then
+                errorLog('Zone ' .. conn.from .. ' does not found')
+            elseif not to then
+                errorLog('Zone ' .. conn.to .. ' does not found')
+            else
+                EscalationManager.addZoneConnection(from, to)
+            end
         end
     end
 
@@ -783,8 +795,7 @@ do
     end
 
     function EscalationManager.checkDispatches()
-        local keepFunc = function(t, i)
-            local group = t[i]
+        local keepFunc = function(group)
             local gr = Group.getByName(group.name)
             if mist.groupIsDead(group.name) or not gr then
                 return false
@@ -1169,17 +1180,23 @@ do
             .textToAll(-1, 2000 + self.index, self.point, zoneTextColor, zoneTextBackgroundColor, 20, true, '')
         trigger.action.setMarkupText(2000 + self.index, self.name)
 
-        for _, groupname in ipairs(concat(self.sams[BLUE], self.sams[RED], self.stations[BLUE], self.stations[RED],
-            self.patrols[BLUE], self.patrols[RED], self.attacks[BLUE], self.attacks[RED], self.supplies[BLUE],
-            self.supplies[RED])) do
-            local gr = Group.getByName(groupname)
-            if gr then
-                gr:destroy()
+        timer.scheduleFunction(function()
+            local groupLists = {self.sams[BLUE], self.sams[RED], self.stations[BLUE], self.stations[RED],
+                                self.patrols[BLUE], self.patrols[RED], self.attacks[BLUE], self.attacks[RED],
+                                self.supplies[BLUE], self.supplies[RED]}
+            for _, groupList in ipairs(groupLists) do
+                checkAndRetainGroupList(groupList)
+                for _, groupname in ipairs(groupList) do
+                    local gr = Group.getByName(groupname)
+                    if gr then
+                        gr:destroy()
+                    end
+                end
             end
-        end
+        end, nil, timer.getTime() + 1)
         timer.scheduleFunction(function()
             self:checkAndSpawnGroups()
-        end, nil, timer.getTime() + 1)
+        end, nil, timer.getTime() + 2)
 
         mist.scheduleFunction(self.checkDeadUnits, {self}, timer.getTime() + 10, 10)
     end
