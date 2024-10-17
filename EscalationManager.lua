@@ -119,22 +119,21 @@ local function randomPick(t, count)
 end
 
 local function tableKeep(t, fnKeep)
-    local j, n = 1, #t;
+    local j, n = 1, #t
 
     for i = 1, n do
         if (fnKeep(t, i, j)) then
-            -- Move i's kept value to j's position, if it's not already there.
             if (i ~= j) then
-                t[j] = t[i];
-                t[i] = nil;
+                t[j] = t[i]
+                t[i] = nil
             end
-            j = j + 1; -- Increment position of where we'll place the next kept value.
+            j = j + 1
         else
-            t[i] = nil;
+            t[i] = nil
         end
     end
 
-    return t;
+    return t
 end
 
 local function saveTable(filename, variablename, data)
@@ -177,33 +176,147 @@ do
         [RED] = {},
         [BLUE] = {}
     }
+    EscalationManager.rewardTable = {
+        default = 15,
+        airplane = 30,
+        helicopter = 40,
+        infantry = 5,
+        sam = 30,
+        ship = 200,
+        ground = 15,
+        building = 50,
+        supply = 100,
+        upgrade = 50,
+        capture = 30,
+        rescue = 100
+    }
+    EscalationManager.playerContributions = {}
+    EscalationManager.playerFunds = 0
+    EscalationManager.playerSupportItems = {}
+
+    function EscalationManager.objectToRewardPoints(object)
+        local earning = EscalationManager.rewardTable.default
+        local message = 'Kill unit\n +' .. earning .. ' credits (unclaimed)'
+
+        if object:hasAttribute('Planes') and EscalationManager.rewardTable.airplane then
+            earning = EscalationManager.rewardTable.airplane
+            message = 'Splash aircraft\n +' .. earning .. ' credits (unclaimed)'
+        elseif object:hasAttribute('Helicopters') and EscalationManager.rewardTable.helicopter then
+            earning = EscalationManager.rewardTable.helicopter
+            message = 'Splash helicopter\n +' .. earning .. ' credits (unclaimed)'
+        elseif object:hasAttribute('Infantry') and EscalationManager.rewardTable.infantry then
+            earning = EscalationManager.rewardTable.infantry
+            message = 'Shack infantry\n +' .. earning .. ' credits (unclaimed)'
+        elseif (object:hasAttribute('SAM SR') or object:hasAttribute('SAM TR') or object:hasAttribute('IR Guided SAM')) and
+            EscalationManager.rewardTable.sam then
+            earning = EscalationManager.rewardTable.sam
+            message = 'Shack SAM\n +' .. earning .. ' credits (unclaimed)'
+        elseif object:hasAttribute('Ships') and EscalationManager.rewardTable.ship then
+            earning = EscalationManager.rewardTable.ship
+            message = 'Shack ship\n +' .. earning .. ' credits (unclaimed)'
+        elseif object:hasAttribute('Ground Units') then
+            earning = EscalationManager.rewardTable.ground
+            message = 'Shack ground unit\n +' .. earning .. ' credits (unclaimed)'
+        elseif object:hasAttribute('Buildings') and EscalationManager.rewardTable.building then
+            earning = EscalationManager.rewardTable.building
+            message = 'Shack building\n +' .. earning .. ' credits (unclaimed)'
+        end
+
+        return earning, message
+    end
 
     function EscalationManager.onEvent(event)
-        if event.id == world.event.S_EVENT_BIRTH then
-            if event.initiator and event.initiator.getGroup and event.initiator.getPoint and
-                event.initiator.getPlayerName and event.initiator.getCoalition and event.initiator.getPoint and
-                event.initiator.isExist and event.initiator:isExist() and Object.getCategory(event.initiator) ==
-                Object.Category.UNIT and
-                (Unit.getCategoryEx(event.initiator) == Unit.Category.AIRPLANE or Unit.getCategoryEx(event.initiator) ==
-                    Unit.Category.HELICOPTER) then
-                local pname = event.initiator:getPlayerName()
-                if pname then
+        if event.initiator and event.initiator.isExist and event.initiator:isExist() and event.initiator.getCategory and
+            event.initiator:getCategory(event.initiator) == Object.Category.UNIT and event.initiator.getCategoryEx and
+            (event.initiator:getCategoryEx() == Unit.Category.AIRPLANE or event.initiator:getCategoryEx() ==
+                Unit.Category.HELICOPTER) and event.initiator.getGroup and event.initiator.getPlayerName then
+            local gr = event.initiator:getGroup()
+            local pname = event.initiator:getPlayerName()
+            if gr and pname then
+                local groupid = gr:getID()
+                local side = event.initiator:getCoalition()
+                if event.id == world.event.S_EVENT_EJECTION then
+                    if side == BLUE then
+                        local contribution = EscalationManager.playerContributions[pname]
+                        if contribution and contribution > 0 then
+                            local tenp = math.floor(contribution * 0.25)
+                            EscalationManager.addPlayerFunds(tenp)
+                            trigger.action.outTextForCoalition(side, pname .. ' ejected\n +' .. tenp ..
+                                ' credits (25% of earnings)', 5)
+                            EscalationManager.playerContributions[pname] = 0
+                        end
+                    end
+                elseif event.id == world.event.S_EVENT_BIRTH then
+                    if side == BLUE then
+                        EscalationManager.playerContributions[pname] = 0
+                    end
+
                     local pos = event.initiator:getPoint()
                     local zone = EscalationManager.getZoneByPoint(pos)
-                    if zone and zone.side ~= event.initiator:getCoalition() then
-                        local gr = event.initiator:getGroup()
-                        if gr then
-                            trigger.action.outTextForGroup(gr:getID(), 'Can not spawn in enemy/neutral zone', 5)
-                            trigger.action.explosion(event.initiator:getPoint(), 5)
-                            -- FIXME: crashes server
-                            -- event.initiator:destroy()
-                            -- for i, v in pairs(net.get_player_list()) do
-                            --     if net.get_name(v) == pname then
-                            --         net.send_chat_to('Can not spawn as ' .. gr:getName() .. ' in enemy/neutral zone', v)
-                            --         net.force_player_slot(v, 0, '')
-                            --         break
-                            --     end
-                            -- end
+                    if zone and zone.side ~= side then
+                        trigger.action.outTextForGroup(gr:getID(), 'Can not spawn in hostile or neutral zone', 5)
+                        trigger.action.explosion(event.initiator:getPoint(), 5)
+                        -- FIXME: crashes server
+                        -- event.initiator:destroy()
+                        -- for i, v in pairs(net.get_player_list()) do
+                        --     if net.get_name(v) == pname then
+                        --         net.send_chat_to('Can not spawn as ' .. gr:getName() .. ' in hostile or neutral zone', v)
+                        --         net.force_player_slot(v, 0, '')
+                        --         break
+                        --     end
+                        -- end
+                    end
+                elseif event.id == world.event.S_EVENT_KILL then
+                    if side == BLUE then
+                        if event.target.getCoalition then
+                            local targetSide = event.target:getCoalition()
+                            if targetSide ~= side and targetSide ~= 0 then
+                                local earning, message = EscalationManager.objectToRewardPoints(event.target)
+                                if earning and message then
+                                    trigger.action.outTextForGroup(groupid, message, 5)
+                                    if not EscalationManager.playerContributions[pname] then
+                                        EscalationManager.playerContributions[pname] = earning
+                                    else
+                                        EscalationManager.playerContributions[pname] =
+                                            EscalationManager.playerContributions[pname] + earning
+                                    end
+                                end
+                            else
+                            end
+                        end
+                    end
+                    if event.target.getCoalition and event.target:getCoalition() == side then
+                        if event.target.getPlayerName and event.target:getPlayerName() then
+                            trigger.action.outText('Friendly fire!\n ' .. pname .. ' killed ' ..
+                                                       event.target:getPlayerName(), 15)
+                        elseif event.target.getTypeName and event.target:getTypeName() then
+                            trigger.action.outText('Friendly fire!\n ' .. pname .. ' killed a friendly ' ..
+                                                       event.target:getTypeName(), 15)
+                        else
+                            trigger.action.outText('Friendly fire!\n ' .. pname .. ' killed a friendly unit', 15)
+                        end
+                    end
+                elseif event.id == world.event.S_EVENT_LAND then
+                    if side == BLUE then
+                        local zone = EscalationManager.getZoneByPoint(event.initiator:getPoint())
+                        if zone and zone.side == side then
+                            trigger.action.outTextForGroup(groupid, pname .. ' landed at ' .. zone.name ..
+                                '\n Wait 10 seconds to claim credits...', 10)
+
+                            local unitname = event.initiator:getName()
+                            timer.scheduleFunction(function()
+                                local unit = Unit.getByName(unitname)
+                                local earnings = EscalationManager.playerContributions[pname]
+                                if unit and zone:isInside(unit:getPoint()) and not unit:inAir() and unit:getPlayerName() ==
+                                    pname and unit:getLife() > 0 and earnings and earnings > 0 then
+                                    EscalationManager.addPlayerFunds(earnings)
+                                    trigger.action.outTextForCoalition(side,
+                                        pname .. ' claimed +' .. earnings .. ' credits', 10)
+                                    EscalationManager.playerContributions[pname] = 0
+
+                                    EscalationManager.writeSave()
+                                end
+                            end, nil, timer.getTime() + 10)
                         end
                     end
                 end
@@ -223,7 +336,8 @@ do
 
     function EscalationManager.writeSave()
         local states = {
-            zones = {}
+            zones = {},
+            playerFunds = EscalationManager.playerFunds
         }
         for _, zone in ipairs(EscalationManager.zones) do
             states.zones[zone.name] = {
@@ -248,6 +362,9 @@ do
                         zone.deadUnits = zonedata.deadUnits or {}
                     end
                 end
+            end
+            if EscalationPersistance.playerFunds then
+                EscalationManager.playerFunds = EscalationPersistance.playerFunds
             end
         end
     end
@@ -472,10 +589,12 @@ do
             EscalationManager.autoRepair(RED)
         end, nil, timer.getTime() + math.random(40 * MINUTE, 80 * MINUTE))
         mist.scheduleFunction(EscalationManager.checkDispatches, {}, timer.getTime() + 5, 5)
-        mist.scheduleFunction(EscalationManager.knowGroundDispatches, {}, timer.getTime() + 1, 1)
+        mist.scheduleFunction(EscalationManager.addIncomes, {}, timer.getTime() + 60, 60)
         if persistenceEnabled then
             mist.scheduleFunction(EscalationManager.writeSave, {}, timer.getTime() + 30, 30)
         end
+
+        missionCommands.addCommandForCoalition(BLUE, 'Economy Overview', nil, EscalationManager.printEconomyOverview)
     end
 
     function EscalationManager.spawnDispatches(side, shouldSpawnCount)
@@ -729,32 +848,6 @@ do
         tableKeep(EscalationManager.activeDispatches[RED], keepFunc)
     end
 
-    function EscalationManager.knowGroundDispatches()
-        local awacs = Group.getByName('awacs') or Group.getByName('AWACS')
-        if not awacs then
-            return
-        end
-        local awacsUnit = awacs:getUnit(1)
-        if not awacsUnit then
-            return
-        end
-        local awacsCtr = awacsUnit:getController()
-        if not awacsCtr then
-            return
-        end
-
-        for _, group in ipairs(EscalationManager.activeDispatches[RED]) do
-            local gr = Group.getByName(group.name)
-            if gr then
-                if gr:getCategory() == Group.Category.GROUND then
-                    for _, un in ipairs(gr:getUnits()) do
-                        awacsCtr:knowTarget(un)
-                    end
-                end
-            end
-        end
-    end
-
     function EscalationManager.autoRepair(side)
         local repairableZones = {}
         for _, zone in ipairs(EscalationManager.zones) do
@@ -771,6 +864,14 @@ do
         end
 
         return timer.getTime() + math.random(40 * MINUTE, 80 * MINUTE)
+    end
+
+    function EscalationManager.addIncomes()
+        for _, zone in ipairs(EscalationManager.zones) do
+            if zone.side == BLUE and zone.income then
+                EscalationManager.addPlayerFunds(zone.income)
+            end
+        end
     end
 
     function EscalationManager.getConnectedZones(zone)
@@ -811,6 +912,110 @@ do
             end
         end
         return output
+    end
+
+    function EscalationManager.addPlayerFunds(earnings)
+        EscalationManager.playerFunds = EscalationManager.playerFunds + earnings
+    end
+
+    function EscalationManager.printEconomyOverview()
+        local text = 'Credits: ' .. EscalationManager.playerFunds
+
+        local unclaimed = {}
+        for playername, contribution in pairs(EscalationManager.playerContributions) do
+            if contribution > 0 then
+                table.insert(unclaimed, ' ' .. playername .. ': ' .. contribution .. ' credits')
+            end
+        end
+
+        if #unclaimed > 0 then
+            text = text .. '\n\nUnclaimed credits\n' .. table.concat(unclaimed, '\n')
+        end
+
+        trigger.action.outTextForCoalition(BLUE, text, 10)
+    end
+
+    function EscalationManager.addPlayerSupportItem(id, name, cost, actionFunc)
+        EscalationManager.playerSupportItems[id] = {
+            name = name,
+            cost = cost,
+            actionFunc = actionFunc
+        }
+    end
+
+    function EscalationManager.buyPlayerSupportItem(id)
+        local item = EscalationManager.playerSupportItems[id]
+        if item then
+            if EscalationManager.playerFunds > item.cost then
+                local err = item.actionFunc()
+                if err then
+                    if type(err) == 'string' then
+                        trigger.action.outTextForCoalition(BLUE, err, 10)
+                    else
+                        trigger.action.outTextForCoalition(BLUE, item.name .. ' is not available now', 10)
+                    end
+                else
+                    EscalationManager.playerFunds = EscalationManager.playerFunds - item.cost
+                    trigger.action.outTextForCoalition(BLUE, 'Bought ' .. item.name .. ' for ' .. item.cost .. '\n ' ..
+                        EscalationManager.playerFunds .. ' credits remaining', 10)
+                end
+            else
+                trigger.action.outTextForCoalition(BLUE,
+                    'Can not afford ' .. item.name .. '\n It costs ' .. item.cost .. ' but ' ..
+                        EscalationManager.playerFunds .. ' credits remaining currently', 10)
+            end
+        end
+    end
+
+    function EscalationManager.refreshPlayerSupportItemsMenu()
+        missionCommands.removeItemForCoalition(BLUE, {'Support'})
+
+        local menu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
+        local submenu = menu
+        local count = 0
+        for id, item in pairs(EscalationManager.playerSupportItems) do
+            count = count + 1
+            if count == 10 then
+                submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More...', submenu)
+                count = 0
+            end
+            missionCommands.addCommandForCoalition(BLUE, '[' .. item.cost .. '] ' .. item.name, submenu,
+                EscalationManager.buyPlayerSupportItem, id)
+        end
+    end
+
+    function EscalationManager.showZoneTargetingMenu(name, actionFunc, targetZoneSide)
+        local menu = missionCommands.addSubMenuForCoalition(BLUE, name)
+        local execute = function(zonename)
+            local zone = EscalationManager.getZoneByName(zonename)
+            if zone then
+                local err = actionFunc(zone)
+                if err then
+                    if type(err) == 'string' then
+                        trigger.action.outTextForCoalition(BLUE, err, 10)
+                    end
+                else
+                    missionCommands.removeItemForCoalition(BLUE, menu)
+                end
+            else
+                trigger.action.outTextForCoalition(BLUE, 'Zone ' .. zonename .. ' not found', 10)
+            end
+        end
+
+        local submenu = menu
+        local count = 0
+        for _, zone in ipairs(EscalationManager.zones) do
+            if not targetZoneSide or zone.side == targetZoneSide then
+                count = count + 1
+                if count == 10 then
+                    submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More...', submenu)
+                    count = 0
+                end
+                missionCommands.addCommandForCoalition(BLUE, zone.name, submenu, execute, zone.name)
+            end
+        end
+
+        return menu
     end
 end
 
@@ -998,7 +1203,7 @@ do
 
     function Zone:checkAndSpawnGroups()
         local isConflicting = self:isConflicting()
-        for _, groupname in ipairs(self.sams[self.side] or {}) do
+        for _, groupname in ipairs(self.sams[self.side]) do
             local deadUnits = self.deadUnits[groupname]
             if not isConflicting and deadUnits ~= true then
                 if mist.groupIsDead(groupname) then
@@ -1026,7 +1231,7 @@ do
                 end
             end
         end
-        for i, groupname in ipairs(self.stations[self.side] or {}) do
+        for i, groupname in ipairs(self.stations[self.side]) do
             local deadUnits = self.deadUnits[groupname]
             if isConflicting and i <= self.level and deadUnits ~= true then
                 if mist.groupIsDead(groupname) then
@@ -1076,12 +1281,27 @@ do
     end
 
     function Zone:isUpgradable()
-        local stations = self.stations[self.side] or {}
-        return self.level < #stations
+        return self.level < #self.stations[self.side]
+    end
+
+    function Zone:getCurrentGroups()
+        local output = {}
+        local groupsToCheck
+        if self:isConflicting() then
+            groupsToCheck = self.stations[self.side]
+        else
+            groupsToCheck = self.sams[self.side]
+        end
+        for _, groupname in ipairs(groupsToCheck) do
+            if not mist.groupIsDead(groupname) then
+                table.insert(output, groupname)
+            end
+        end
+        return output
     end
 
     function Zone:isDegraded()
-        local stations = self.stations[self.side] or {}
+        local stations = self.stations[self.side]
 
         if self.level < #stations then
             return true
@@ -1100,7 +1320,7 @@ do
     end
 
     function Zone:isSamDegraded()
-        for _, groupname in ipairs(self.sams[self.side] or {}) do
+        for _, groupname in ipairs(self.sams[self.side]) do
             local group = Group.getByName(groupname)
             if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
                 return true
@@ -1111,7 +1331,7 @@ do
     end
 
     function Zone:tryRepair()
-        for i, groupname in ipairs(self.stations[self.side] or {}) do
+        for i, groupname in ipairs(self.stations[self.side]) do
             if i <= self.level then
                 local group = Group.getByName(groupname)
                 if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
@@ -1126,7 +1346,7 @@ do
     end
 
     function Zone:trySamRepair()
-        for i, groupname in ipairs(self.sams[self.side] or {}) do
+        for i, groupname in ipairs(self.sams[self.side]) do
             local group = Group.getByName(groupname)
             if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
                 mist.respawnInZone(groupname, self.name, true)
@@ -1139,18 +1359,30 @@ do
     end
 
     function Zone:upgrade()
-        if self:tryRepair() then
-            trigger.action.outText(self.name .. ' is repaired', 20)
+        if self:isConflicting() then
+            if self:tryRepair() then
+                trigger.action.outText(self.name .. ' is repaired', 20)
+                return true
+            else
+                local newLevel = math.min(self.level + 1, #self.stations[self.side])
+                if newLevel > self.level then
+                    self.deadUnits = {}
+                    self.level = newLevel
+                    self:checkAndSpawnGroups()
+
+                    trigger.action.outText(self.name .. ' is upgraded', 20)
+
+                    EscalationManager.writeSave()
+
+                    return true
+                else
+                    return false
+                end
+            end
         else
-            local newLevel = math.min(self.level + 1, #self.stations[self.side])
-            if newLevel > self.level then
-                self.deadUnits = {}
-                self.level = newLevel
-                self:checkAndSpawnGroups()
-
-                trigger.action.outText(self.name .. ' is upgraded', 20)
-
-                EscalationManager.writeSave()
+            if self:trySamRepair() then
+                trigger.action.outText(self.name .. ' is repaired', 20)
+                return true
             end
         end
     end
@@ -1202,7 +1434,7 @@ do
         end
 
         if not self:isConflicting() then
-            for _, groupname in ipairs(self.sams[self.side] or {}) do
+            for _, groupname in ipairs(self.sams[self.side]) do
                 local gr = Group.getByName(groupname)
                 if not gr or mist.groupIsDead(groupname) then
                     self.deadUnits[groupname] = true
@@ -1226,7 +1458,7 @@ do
             return
         end
 
-        local stations = self.stations[self.side] or {}
+        local stations = self.stations[self.side]
 
         local lastLevel = #stations
         for i = #stations, 1, -1 do
@@ -1291,10 +1523,10 @@ do
     LogisticsManager.allowedTypes['Hercules'] = true
     LogisticsManager.allowedTypes['UH-60L'] = true
 
-    LogisticsManager.groupMenus = {} -- groupid = path
-    LogisticsManager.carriedCargo = {} -- groupid = source
+    LogisticsManager.groupMenus = {}
+    LogisticsManager.carriedCargo = {}
     LogisticsManager.ejectedPilots = {}
-    LogisticsManager.carriedPilots = {} -- groupid = count
+    LogisticsManager.carriedPilots = {}
 
     LogisticsManager.maxCarriedPilots = 4
 
@@ -1354,14 +1586,30 @@ do
 
                     trigger.action.outTextForGroup(gr:getID(), 'Supplies unloaded', 10)
                     if LogisticsManager.carriedCargo[gr:getID()] ~= zn.name then
+                        local side = un:getCoalition()
                         if zn.side == 0 then
-                            -- TODO: add credits
-
-                            zn:capture(un:getCoalition())
-                        elseif zn.side == un:getCoalition() then
-                            -- TODO: add credits
-
-                            zn:upgrade()
+                            zn:capture(side)
+                            if side == BLUE then
+                                EscalationManager.addPlayerFunds(EscalationManager.rewardTable.capture)
+                                trigger.action.outTextForCoalition(BLUE, 'Capturing ' .. zn.name .. '\n Claimed +' ..
+                                    EscalationManager.rewardTable.capture .. ' credits', 10)
+                            end
+                        elseif zn.side == side then
+                            if side == BLUE then
+                                if zn:upgrade() then
+                                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.upgrade)
+                                    trigger.action.outTextForCoalition(BLUE,
+                                        'Upgrading ' .. zn.name .. '\n Claimed +' ..
+                                            EscalationManager.rewardTable.upgrade .. ' credits', 10)
+                                else
+                                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.supply)
+                                    trigger.action.outTextForCoalition(BLUE,
+                                        'Resupplying ' .. zn.name .. '\n Claimed +' ..
+                                            EscalationManager.rewardTable.supply .. ' credits', 10)
+                                end
+                            else
+                                zn:upgrade()
+                            end
                         end
                     end
 
@@ -1425,19 +1673,22 @@ do
                 return
             end
 
+            local side = gr:getCoalition()
             local zn = EscalationManager.getZoneByPoint(un:getPoint())
-            if zn and zn.side == gr:getCoalition() then
-                local count = LogisticsManager.carriedPilots[groupid]
-                trigger.action.outTextForGroup(groupid, 'Pilots dropped off', 15)
-
-                -- TODO: add credit
-
-                LogisticsManager.carriedPilots[groupid] = 0
-
-                return
+            if not zn or zn.side ~= side then
+                trigger.action.outTextForGroup(groupid, 'Can only drop off pilots in a friendly zone', 15)
             end
 
-            trigger.action.outTextForGroup(groupid, 'Can only drop off pilots in a friendly zone', 15)
+            local count = LogisticsManager.carriedPilots[groupid]
+            LogisticsManager.carriedPilots[groupid] = 0
+            trigger.action.outTextForGroup(groupid, 'Pilots dropped off', 15)
+
+            if side == BLUE then
+                local earning = EscalationManager.rewardTable.rescue * count
+                EscalationManager.addPlayerFunds(earning)
+                trigger.action.outTextForCoalition(BLUE, 'Rescueing ' .. count .. ' pilots\n Claimed +' .. earning ..
+                    ' credits', 10)
+            end
         end
     end
 
@@ -1595,7 +1846,7 @@ HercCargoDropSupply = {}
 do
     HercCargoDropSupply.allowedCargo = {}
     HercCargoDropSupply.allowedCargo['weapons.bombs.Generic Crate [20000lb]'] = true
-    HercCargoDropSupply.herculesRegistry = {} -- {takeoffzone = string, lastlanded = time}
+    HercCargoDropSupply.herculesRegistry = {}
 
     function HercCargoDropSupply.onEvent(event)
         if event.id == world.event.S_EVENT_SHOT then
@@ -1603,9 +1854,9 @@ do
             if HercCargoDropSupply.allowedCargo[name] then
                 local alt = getAGL(event.weapon)
                 if alt < 5 then
-                    HercCargoDropSupply.ProcessCargo(event)
+                    HercCargoDropSupply.processCargo(event)
                 else
-                    timer.scheduleFunction(HercCargoDropSupply.CheckCargo, event, timer.getTime() + 1)
+                    timer.scheduleFunction(HercCargoDropSupply.checkCargo, event, timer.getTime() + 1)
                 end
             end
         end
@@ -1649,7 +1900,7 @@ do
         world.addEventHandler(ev)
     end
 
-    function HercCargoDropSupply.ProcessCargo(shotevent)
+    function HercCargoDropSupply.processCargo(shotevent)
         local cargo = shotevent.weapon
         local zn = EscalationManager.getZoneByPoint(cargo:getPoint())
         if zn and shotevent.initiator and shotevent.initiator:isExist() then
@@ -1659,22 +1910,35 @@ do
                 return
             end
 
-            local cargoSide = cargo:getCoalition()
+            local side = cargo:getCoalition()
             if zn.side == 0 then
-                -- TODO: add credits
-
-                zn:capture(cargoSide)
-            elseif zn.side == cargoSide then
-                -- TODO: add credits
-
-                zn:upgrade()
+                zn:capture(side)
+                if side == BLUE then
+                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.capture)
+                    trigger.action.outTextForCoalition(BLUE, 'Capturing ' .. zn.name .. '\n Claimed +' ..
+                        EscalationManager.rewardTable.capture .. ' credits', 10)
+                end
+            elseif zn.side == side then
+                if side == BLUE then
+                    if zn:upgrade() then
+                        EscalationManager.addPlayerFunds(EscalationManager.rewardTable.upgrade)
+                        trigger.action.outTextForCoalition(BLUE, 'Upgrading ' .. zn.name .. '\n Claimed +' ..
+                            EscalationManager.rewardTable.upgrade .. ' credits', 10)
+                    else
+                        EscalationManager.addPlayerFunds(EscalationManager.rewardTable.supply)
+                        trigger.action.outTextForCoalition(BLUE, 'Resupplying ' .. zn.name .. '\n Claimed +' ..
+                            EscalationManager.rewardTable.supply .. ' credits', 10)
+                    end
+                else
+                    zn:upgrade()
+                end
             end
 
             cargo:destroy()
         end
     end
 
-    function HercCargoDropSupply.CheckCargo(shotevent, time)
+    function HercCargoDropSupply.checkCargo(shotevent, time)
         local cargo = shotevent.weapon
         if not cargo:isExist() then
             return nil
@@ -1682,7 +1946,7 @@ do
 
         local alt = getAGL(cargo)
         if alt < 5 then
-            HercCargoDropSupply.ProcessCargo(shotevent)
+            HercCargoDropSupply.processCargo(shotevent)
             return nil
         end
         return time + 1
