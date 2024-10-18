@@ -196,6 +196,7 @@ do
         capture = 30,
         rescue = 100
     }
+    EscalationManager.missionTime = 4 * 60 * MINUTE
 
     EscalationManager.zones = {}
     EscalationManager.zoneIndexTable = {}
@@ -624,12 +625,34 @@ do
             mist.scheduleFunction(EscalationManager.writeSave, {}, timer.getTime() + 30, 30)
         end
 
+        mist.scheduleFunction(EscalationManager.printMissionTime, {}, 30 * MINUTE, 30 * MINUTE)
+
+        timer.scheduleFunction(function()
+            trigger.action.outText('Mission is restarting now...')
+        end, nil, EscalationManager.missionTime - MINUTE)
+        timer.scheduleFunction(function()
+            EscalationManager.writeSave()
+            net.load_next_mission()
+        end, nil, EscalationManager.missionTime - 5)
+
+        missionCommands.addCommand('Check Mission Time', nil, EscalationManager.printMissionTime)
         local economyMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Economy')
         missionCommands.addCommandForCoalition(BLUE, 'Economy Overview', economyMenu,
             EscalationManager.printEconomyOverview)
         missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
             EscalationManager.printPossibleIncomes)
         missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu, EscalationManager.printScoreboards)
+    end
+
+    function EscalationManager.printMissionTime()
+        local left = EscalationManager.missionTime - timer.getTime()
+        if left > 60 * MINUTE then
+            local hours = math.floor(left / (60 * MINUTE))
+            trigger.action.outText('Mission will be restarted in ' .. hours .. ' hours')
+        else
+            local minutes = math.floor(left / MINUTE)
+            trigger.action.outText('Mission will be restarted in ' .. minutes .. ' minutes')
+        end
     end
 
     function EscalationManager.spawnDispatches(side, shouldSpawnCount)
