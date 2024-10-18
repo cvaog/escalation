@@ -182,14 +182,6 @@ local redZoneAreaColor = {1, 0, 0, 0.3}
 
 EscalationManager = {}
 do
-    EscalationManager.zones = {}
-    EscalationManager.zoneIndexTable = {}
-    EscalationManager.connections = {}
-    EscalationManager.connectionIndexTable = {}
-    EscalationManager.activeDispatches = {
-        [RED] = {},
-        [BLUE] = {}
-    }
     EscalationManager.rewardTable = {
         default = 15,
         airplane = 30,
@@ -204,40 +196,50 @@ do
         capture = 30,
         rescue = 100
     }
-    EscalationManager.playerContributions = {}
+
+    EscalationManager.zones = {}
+    EscalationManager.zoneIndexTable = {}
+    EscalationManager.connections = {}
+    EscalationManager.connectionIndexTable = {}
+    EscalationManager.activeDispatches = {
+        [RED] = {},
+        [BLUE] = {}
+    }
+    EscalationManager.playerUnclaimedPoints = {}
     EscalationManager.playerFunds = 0
     EscalationManager.playerSupportItems = {}
     EscalationManager.playerSupportMenu = nil
+    EscalationManager.playerScoreboards = {}
 
     function EscalationManager.objectToRewardPoints(object)
-        local earning = EscalationManager.rewardTable.default
+        local earnings = EscalationManager.rewardTable.default
         local message = 'Kill unit'
 
         if object:hasAttribute('Planes') and EscalationManager.rewardTable.airplane then
-            earning = EscalationManager.rewardTable.airplane
+            earnings = EscalationManager.rewardTable.airplane
             message = 'Splash aircraft'
         elseif object:hasAttribute('Helicopters') and EscalationManager.rewardTable.helicopter then
-            earning = EscalationManager.rewardTable.helicopter
+            earnings = EscalationManager.rewardTable.helicopter
             message = 'Splash helicopter'
         elseif object:hasAttribute('Infantry') and EscalationManager.rewardTable.infantry then
-            earning = EscalationManager.rewardTable.infantry
+            earnings = EscalationManager.rewardTable.infantry
             message = 'Shack infantry'
         elseif (object:hasAttribute('SAM SR') or object:hasAttribute('SAM TR') or object:hasAttribute('IR Guided SAM')) and
             EscalationManager.rewardTable.sam then
-            earning = EscalationManager.rewardTable.sam
+            earnings = EscalationManager.rewardTable.sam
             message = 'Shack SAM'
         elseif object:hasAttribute('Ships') and EscalationManager.rewardTable.ship then
-            earning = EscalationManager.rewardTable.ship
+            earnings = EscalationManager.rewardTable.ship
             message = 'Shack ship'
         elseif object:hasAttribute('Ground Units') then
-            earning = EscalationManager.rewardTable.ground
+            earnings = EscalationManager.rewardTable.ground
             message = 'Shack vehicle'
         elseif object:hasAttribute('Buildings') and EscalationManager.rewardTable.building then
-            earning = EscalationManager.rewardTable.building
+            earnings = EscalationManager.rewardTable.building
             message = 'Shack building'
         end
 
-        return earning, message
+        return earnings, message
     end
 
     function EscalationManager.onEvent(event)
@@ -252,18 +254,19 @@ do
                 local side = event.initiator:getCoalition()
                 if event.id == world.event.S_EVENT_EJECTION then
                     if side == BLUE then
-                        local contribution = EscalationManager.playerContributions[pname]
-                        if contribution and contribution > 0 then
-                            local tenp = math.floor(contribution * 0.25)
-                            EscalationManager.addPlayerFunds(tenp)
-                            trigger.action.outTextForCoalition(side, pname .. ' ejected\n +' .. tenp ..
+                        local earnings = EscalationManager.playerUnclaimedPoints[pname]
+                        if earnings and earnings > 0 then
+                            earnings = math.floor(earnings * 0.25)
+                            EscalationManager.addPlayerFunds(earnings, pname)
+                            trigger.action.outTextForCoalition(side, pname .. ' ejected\n Claimed +' .. earnings ..
                                 ' credits (25% of earnings)', 5)
-                            EscalationManager.playerContributions[pname] = 0
+
+                            EscalationManager.playerUnclaimedPoints[pname] = 0
                         end
                     end
                 elseif event.id == world.event.S_EVENT_BIRTH then
                     if side == BLUE then
-                        EscalationManager.playerContributions[pname] = 0
+                        EscalationManager.playerUnclaimedPoints[pname] = 0
                     end
 
                     local pos = event.initiator:getPoint()
@@ -286,15 +289,15 @@ do
                         if event.target.getCoalition then
                             local targetSide = event.target:getCoalition()
                             if targetSide ~= side and targetSide ~= 0 then
-                                local earning, message = EscalationManager.objectToRewardPoints(event.target)
-                                if earning and message then
-                                    trigger.action.outTextForGroup(groupid, message .. '\n +' .. earning ..
+                                local earnings, message = EscalationManager.objectToRewardPoints(event.target)
+                                if earnings and message then
+                                    trigger.action.outTextForGroup(groupid, message .. '\n +' .. earnings ..
                                         ' credits (unclaimed)', 5)
-                                    if not EscalationManager.playerContributions[pname] then
-                                        EscalationManager.playerContributions[pname] = earning
+                                    if not EscalationManager.playerUnclaimedPoints[pname] then
+                                        EscalationManager.playerUnclaimedPoints[pname] = earnings
                                     else
-                                        EscalationManager.playerContributions[pname] =
-                                            EscalationManager.playerContributions[pname] + earning
+                                        EscalationManager.playerUnclaimedPoints[pname] =
+                                            EscalationManager.playerUnclaimedPoints[pname] + earnings
                                     end
                                 end
                             else
@@ -322,13 +325,14 @@ do
                             local unitname = event.initiator:getName()
                             timer.scheduleFunction(function()
                                 local unit = Unit.getByName(unitname)
-                                local earnings = EscalationManager.playerContributions[pname]
+                                local earnings = EscalationManager.playerUnclaimedPoints[pname]
                                 if unit and zone:isInside(unit:getPoint()) and not unit:inAir() and unit:getPlayerName() ==
                                     pname and unit:getLife() > 0 and earnings and earnings > 0 then
-                                    EscalationManager.addPlayerFunds(earnings)
+                                    EscalationManager.addPlayerFunds(earnings, pname)
                                     trigger.action.outTextForCoalition(side,
                                         pname .. ' claimed +' .. earnings .. ' credits', 10)
-                                    EscalationManager.playerContributions[pname] = 0
+
+                                    EscalationManager.playerUnclaimedPoints[pname] = 0
 
                                     EscalationManager.writeSave()
                                 end
@@ -353,7 +357,8 @@ do
     function EscalationManager.writeSave()
         local states = {
             zones = {},
-            playerFunds = EscalationManager.playerFunds
+            playerFunds = EscalationManager.playerFunds,
+            playerScoreboards = EscalationManager.playerScoreboards
         }
         for _, zone in ipairs(EscalationManager.zones) do
             states.zones[zone.name] = {
@@ -381,6 +386,9 @@ do
             end
             if EscalationPersistance.playerFunds then
                 EscalationManager.playerFunds = EscalationPersistance.playerFunds
+            end
+            if EscalationPersistance.playerScoreboards then
+                EscalationManager.playerScoreboards = EscalationPersistance.playerScoreboards
             end
         end
     end
@@ -621,6 +629,7 @@ do
             EscalationManager.printEconomyOverview)
         missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
             EscalationManager.printPossibleIncomes)
+        missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu, EscalationManager.printScoreboards)
     end
 
     function EscalationManager.spawnDispatches(side, shouldSpawnCount)
@@ -645,9 +654,7 @@ do
             if conflictZone.side == side or conflictZone.side == 0 then
                 -- possible patrol or supply target
 
-                local suppliable = (conflictZone.side == side and
-                                       (conflictZone:isUpgradable() or conflictZone:isDegraded())) or
-                                       conflictZone:isCapturable(side)
+                local suppliable = conflictZone:isSuppliable(side)
                 for _, originZone in ipairs(EscalationManager.getPossiblePatrolOrSupplySpawnZoneForTargetZone(
                     conflictZone, side)) do
                     for _, groupname in ipairs(originZone.patrols[side]) do
@@ -936,8 +943,16 @@ do
         return output
     end
 
-    function EscalationManager.addPlayerFunds(earnings)
+    function EscalationManager.addPlayerFunds(earnings, byplayer)
         EscalationManager.playerFunds = EscalationManager.playerFunds + earnings
+
+        if byplayer then
+            if not EscalationManager.playerScoreboards[byplayer] then
+                EscalationManager.playerScoreboards[byplayer] = earnings
+            else
+                EscalationManager.playerScoreboards[byplayer] = EscalationManager.playerScoreboards[byplayer] + earnings
+            end
+        end
     end
 
     function EscalationManager.printEconomyOverview()
@@ -959,7 +974,7 @@ do
         end
 
         local unclaimed = {}
-        for playername, contribution in pairs(EscalationManager.playerContributions) do
+        for playername, contribution in pairs(EscalationManager.playerUnclaimedPoints) do
             if contribution > 0 then
                 table.insert(unclaimed, ' ' .. playername .. ': ' .. contribution .. ' credits')
             end
@@ -986,6 +1001,26 @@ do
             text = text .. table.concat(incomes, '\n')
         else
             text = text .. ' BLUE is controlling all income zones.\n Good job!'
+        end
+
+        trigger.action.outTextForCoalition(BLUE, text, 20)
+    end
+
+    function EscalationManager.printScoreboards()
+        local text = 'Scoreboards:'
+
+        local scores = {}
+        for pname, score in pairs(EscalationManager.playerScoreboards) do
+            table.insert(scores, {
+                pname = pname,
+                score = score
+            })
+        end
+        table.sort(scores, function(a, b)
+            return a.score < b.score
+        end)
+        for _, score in ipairs(scores) do
+            text = text .. '\n ' .. score.pname .. ': +' .. score.score
         end
 
         trigger.action.outTextForCoalition(BLUE, text, 20)
@@ -1577,6 +1612,50 @@ do
 
         return
     end
+
+    function Zone:supply(byside)
+        if zn.side == 0 then
+            zn:capture(byside)
+        elseif zn.side == byside then
+            zn:upgrade()
+        end
+    end
+
+    function Zone:supplyByPlayer(pname)
+        local earnings
+        local printablePname = pname
+        if not printablePname then
+            printablePname = '(unknown)'
+        end
+        if self.side == 0 then
+            self:capture(BLUE)
+            earnings = EscalationManager.rewardTable.capture
+            EscalationManager.addPlayerFunds(earnings, pname)
+            trigger.action.outTextForCoalition(BLUE, printablePname .. ' captured ' .. self.name .. '\n Claimed +' ..
+                earnings .. ' credits', 10)
+        elseif self.side == BLUE then
+            if self:upgrade() then
+                earnings = EscalationManager.rewardTable.upgrade
+                EscalationManager.addPlayerFunds(earnings, pname)
+                trigger.action.outTextForCoalition(BLUE,
+                    printablePname .. ' upgraded ' .. self.name .. '\n Claimed +' .. earnings .. ' credits', 10)
+            else
+                earnings = EscalationManager.rewardTable.supply
+                EscalationManager.addPlayerFunds(earnings, pname)
+                trigger.action.outTextForCoalition(BLUE,
+                    printablePname .. ' resupplied ' .. self.name .. '\n Claimed +' .. earnings .. ' credits', 10)
+            end
+        end
+        EscalationManager.writeSave()
+    end
+
+    function Zone:isSuppliable(byside)
+        if self.side == byside then
+            return self:isUpgradable() or self:isDegraded()
+        else
+            return self:isCapturable(byside)
+        end
+    end
 end
 
 LogisticsManager = {}
@@ -1651,31 +1730,13 @@ do
                     end
 
                     trigger.action.outTextForGroup(gr:getID(), 'Supplies unloaded', 10)
+                    local pname = un:getPlayerName()
                     if LogisticsManager.carriedCargo[gr:getID()] ~= zn.name then
                         local side = un:getCoalition()
-                        if zn.side == 0 then
-                            zn:capture(side)
-                            if side == BLUE then
-                                EscalationManager.addPlayerFunds(EscalationManager.rewardTable.capture)
-                                trigger.action.outTextForCoalition(BLUE, 'Capturing ' .. zn.name .. '\n Claimed +' ..
-                                    EscalationManager.rewardTable.capture .. ' credits', 10)
-                            end
-                        elseif zn.side == side then
-                            if side == BLUE then
-                                if zn:upgrade() then
-                                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.upgrade)
-                                    trigger.action.outTextForCoalition(BLUE,
-                                        'Upgrading ' .. zn.name .. '\n Claimed +' ..
-                                            EscalationManager.rewardTable.upgrade .. ' credits', 10)
-                                else
-                                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.supply)
-                                    trigger.action.outTextForCoalition(BLUE,
-                                        'Resupplying ' .. zn.name .. '\n Claimed +' ..
-                                            EscalationManager.rewardTable.supply .. ' credits', 10)
-                                end
-                            else
-                                zn:upgrade()
-                            end
+                        if side == BLUE then
+                            zn:supplyByPlayer(pname)
+                        else
+                            zn:supply(side)
                         end
                     end
 
@@ -1750,10 +1811,12 @@ do
             trigger.action.outTextForGroup(groupid, 'Pilots dropped off', 15)
 
             if side == BLUE then
-                local earning = EscalationManager.rewardTable.rescue * count
-                EscalationManager.addPlayerFunds(earning)
-                trigger.action.outTextForCoalition(BLUE, 'Rescueing ' .. count .. ' pilots\n Claimed +' .. earning ..
-                    ' credits', 10)
+                local earnings = EscalationManager.rewardTable.rescue * count
+                local pname = un:getPlayerName()
+                EscalationManager.addPlayerFunds(earnings, pname)
+                trigger.action.outTextForCoalition(BLUE, (pname or '(unknown)') .. ' rescued ' .. count ..
+                    ' pilots\n Claimed +' .. earnings .. ' credits', 10)
+                EscalationManager.writeSave()
             end
         end
     end
@@ -1969,7 +2032,7 @@ do
     function HercCargoDropSupply.processCargo(shotevent)
         local cargo = shotevent.weapon
         local zn = EscalationManager.getZoneByPoint(cargo:getPoint())
-        if zn and shotevent.initiator and shotevent.initiator:isExist() then
+        if zn and shotevent.initiator and shotevent.initiator.isExist and shotevent.initiator:isExist() then
             local herc = HercCargoDropSupply.herculesRegistry[shotevent.initiator:getName()]
             if not herc or herc.takeoffzone == zn.name then
                 cargo:destroy()
@@ -1977,27 +2040,14 @@ do
             end
 
             local side = cargo:getCoalition()
-            if zn.side == 0 then
-                zn:capture(side)
-                if side == BLUE then
-                    EscalationManager.addPlayerFunds(EscalationManager.rewardTable.capture)
-                    trigger.action.outTextForCoalition(BLUE, 'Capturing ' .. zn.name .. '\n Claimed +' ..
-                        EscalationManager.rewardTable.capture .. ' credits', 10)
+            if side == BLUE then
+                local pname
+                if shotevent.initiator.getPlayerName then
+                    pname = shotevent.initiator:getPlayerName()
                 end
-            elseif zn.side == side then
-                if side == BLUE then
-                    if zn:upgrade() then
-                        EscalationManager.addPlayerFunds(EscalationManager.rewardTable.upgrade)
-                        trigger.action.outTextForCoalition(BLUE, 'Upgrading ' .. zn.name .. '\n Claimed +' ..
-                            EscalationManager.rewardTable.upgrade .. ' credits', 10)
-                    else
-                        EscalationManager.addPlayerFunds(EscalationManager.rewardTable.supply)
-                        trigger.action.outTextForCoalition(BLUE, 'Resupplying ' .. zn.name .. '\n Claimed +' ..
-                            EscalationManager.rewardTable.supply .. ' credits', 10)
-                    end
-                else
-                    zn:upgrade()
-                end
+                zn:supplyByPlayer(pname)
+            else
+                zn:supply(side)
             end
 
             cargo:destroy()
@@ -2172,7 +2222,6 @@ do
 
         local zone = EscalationManager.getZoneByName(self.zone)
         if not zone or zone.side ~= RED then
-            self.deployedAt = timer.getAbsTime() - JTAC.playTime
             return
         end
 
