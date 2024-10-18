@@ -24,7 +24,7 @@ EscalationManager.addPlayerSupportItem('supplies', 'Resupply friendly Zone', 500
         return 'Choose zone from F10 menu'
     end
 
-    supplyTargetMenu = EscalationManager.showZoneTargetingMenu('Select Zone to resupply', function(zone)
+    supplyTargetMenu = EscalationManager.showZoneTargetingMenu('Select zone to resupply', function(zone)
         if zone.side == BLUE then
             if not zone:upgrade() then
                 return zone.name .. ' is already max level'
@@ -35,7 +35,7 @@ EscalationManager.addPlayerSupportItem('supplies', 'Resupply friendly Zone', 500
         supplyTargetMenu = nil
     end, BLUE)
 
-    trigger.action.outTextForCoalition(BLUE, 'Supplies prepared. Choose zone from F10 menu', 10)
+    trigger.action.outTextForCoalition(BLUE, 'Supplies are prepared. Choose zone from F10 menu', 10)
 end)
 
 local smokeTargetMenu = nil
@@ -44,7 +44,7 @@ EscalationManager.addPlayerSupportItem('smoke', 'Smoke markers', 50, function(se
         return 'Choose target zone from F10 menu'
     end
 
-    smokeTargetMenu = EscalationManager.showZoneTargetingMenu('Smoke marker target', function(zone)
+    smokeTargetMenu = EscalationManager.showZoneTargetingMenu('Select smoke marker target', function(zone)
         if zone.side == RED then
             local groups = zone:getCurrentGroups()
             local units = {}
@@ -70,7 +70,27 @@ EscalationManager.addPlayerSupportItem('smoke', 'Smoke markers', 50, function(se
         smokeTargetMenu = nil
     end, RED)
 
-    trigger.action.outTextForCoalition(BLUE, 'Choose target zone from F10 menu', 10)
+    trigger.action.outTextForCoalition(BLUE, 'Smoke marker is prepared. Choose zone from F10 menu', 10)
+end)
+
+local jtacTopMenu = missionCommands.addSubMenuForCoalition(BLUE, 'JTAC')
+local jtacTargetMenu = nil
+EscalationManager.addPlayerSupportItem('jtac', 'Deploy JTAC', 100, function(sender)
+    if jtacTargetMenu then
+        return 'Choose target zone from F10 menu'
+    end
+
+    jtacTargetMenu = EscalationManager.showZoneTargetingMenu('Select JTAC deployment zone', function(zone)
+        if zone.side == RED then
+            local jtac = JTAC:new(zone.name, jtacTopMenu)
+            jtac:init()
+        else
+            return zone.name .. ' is not hostile'
+        end
+        jtacTargetMenu = nil
+    end, RED)
+
+    trigger.action.outTextForCoalition(BLUE, 'JTAC drone is prepared. Choose zone from F10 menu', 10)
 end)
 
 EscalationManager.refreshPlayerSupportItemsMenu()

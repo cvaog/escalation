@@ -131,7 +131,7 @@ end
 
 local function isGroupInZone(group, zone)
     for _, unit in ipairs(group:getUnits()) do
-        if unit and unit:getLife() >= 1 and not zone:isInside(unit:getPoint()) then
+        if unit:getLife() >= 1 and not zone:isInside(unit:getPoint()) then
             return false
         end
     end
@@ -162,6 +162,14 @@ local function checkAndRetainGroupList(t)
             return true
         end
     end)
+end
+
+local function randomLaserCode()
+    local c1 = 1
+    local c2 = math.random(5, 7)
+    local c3 = math.random(1, 8)
+    local c4 = math.random(1, 8)
+    return c1 * 1000 + c2 * 100 + c3 * 10 + c4
 end
 
 local zoneTextBackgroundColor = {0.7, 0.7, 0.7, 0.7}
@@ -199,33 +207,34 @@ do
     EscalationManager.playerContributions = {}
     EscalationManager.playerFunds = 0
     EscalationManager.playerSupportItems = {}
+    EscalationManager.playerSupportMenu = nil
 
     function EscalationManager.objectToRewardPoints(object)
         local earning = EscalationManager.rewardTable.default
-        local message = 'Kill unit\n +' .. earning .. ' credits (unclaimed)'
+        local message = 'Kill unit'
 
         if object:hasAttribute('Planes') and EscalationManager.rewardTable.airplane then
             earning = EscalationManager.rewardTable.airplane
-            message = 'Splash aircraft\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Splash aircraft'
         elseif object:hasAttribute('Helicopters') and EscalationManager.rewardTable.helicopter then
             earning = EscalationManager.rewardTable.helicopter
-            message = 'Splash helicopter\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Splash helicopter'
         elseif object:hasAttribute('Infantry') and EscalationManager.rewardTable.infantry then
             earning = EscalationManager.rewardTable.infantry
-            message = 'Shack infantry\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Shack infantry'
         elseif (object:hasAttribute('SAM SR') or object:hasAttribute('SAM TR') or object:hasAttribute('IR Guided SAM')) and
             EscalationManager.rewardTable.sam then
             earning = EscalationManager.rewardTable.sam
-            message = 'Shack SAM\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Shack SAM'
         elseif object:hasAttribute('Ships') and EscalationManager.rewardTable.ship then
             earning = EscalationManager.rewardTable.ship
-            message = 'Shack ship\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Shack ship'
         elseif object:hasAttribute('Ground Units') then
             earning = EscalationManager.rewardTable.ground
-            message = 'Shack ground unit\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Shack vehicle'
         elseif object:hasAttribute('Buildings') and EscalationManager.rewardTable.building then
             earning = EscalationManager.rewardTable.building
-            message = 'Shack building\n +' .. earning .. ' credits (unclaimed)'
+            message = 'Shack building'
         end
 
         return earning, message
@@ -279,7 +288,8 @@ do
                             if targetSide ~= side and targetSide ~= 0 then
                                 local earning, message = EscalationManager.objectToRewardPoints(event.target)
                                 if earning and message then
-                                    trigger.action.outTextForGroup(groupid, message, 5)
+                                    trigger.action.outTextForGroup(groupid, message .. '\n +' .. earning ..
+                                        ' credits (unclaimed)', 5)
                                     if not EscalationManager.playerContributions[pname] then
                                         EscalationManager.playerContributions[pname] = earning
                                     else
@@ -606,7 +616,11 @@ do
             mist.scheduleFunction(EscalationManager.writeSave, {}, timer.getTime() + 30, 30)
         end
 
-        missionCommands.addCommandForCoalition(BLUE, 'Economy Overview', nil, EscalationManager.printEconomyOverview)
+        local economyMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Economy')
+        missionCommands.addCommandForCoalition(BLUE, 'Economy Overview', economyMenu,
+            EscalationManager.printEconomyOverview)
+        missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
+            EscalationManager.printPossibleIncomes)
     end
 
     function EscalationManager.spawnDispatches(side, shouldSpawnCount)
@@ -726,9 +740,6 @@ do
                             return
                         end
                         local awacsCtr = awacsUnit:getController()
-                        if not awacsCtr then
-                            return
-                        end
 
                         awacsCtr:knowTarget(gr)
                     else
@@ -932,6 +943,21 @@ do
     function EscalationManager.printEconomyOverview()
         local text = 'Credits: ' .. EscalationManager.playerFunds
 
+        local totalIncome = 0
+        local incomes = {}
+        for _, zone in ipairs(EscalationManager.zones) do
+            if zone.side == BLUE and zone.income and zone.income > 0 then
+                totalIncome = totalIncome + zone.income
+                table.insert(incomes, ' ' .. zone.name .. ': +' .. zone.income)
+            end
+        end
+        if totalIncome > 0 then
+            text = text .. '\n\nTotal Incomes: +' .. totalIncome .. ' credits/minute\n'
+            if #incomes > 0 then
+                text = text .. table.concat(incomes, '\n')
+            end
+        end
+
         local unclaimed = {}
         for playername, contribution in pairs(EscalationManager.playerContributions) do
             if contribution > 0 then
@@ -943,7 +969,26 @@ do
             text = text .. '\n\nUnclaimed credits\n' .. table.concat(unclaimed, '\n')
         end
 
-        trigger.action.outTextForCoalition(BLUE, text, 10)
+        trigger.action.outTextForCoalition(BLUE, text, 20)
+    end
+
+    function EscalationManager.printPossibleIncomes()
+        local text = 'Possible Incomes:\n'
+
+        local incomes = {}
+        for _, zone in ipairs(EscalationManager.zones) do
+            if zone.side ~= BLUE and zone.income and zone.income > 0 then
+                table.insert(incomes, ' ' .. zone.name .. ': +' .. zone.income)
+            end
+        end
+
+        if #incomes > 0 then
+            text = text .. table.concat(incomes, '\n')
+        else
+            text = text .. ' BLUE is controlling all income zones.\n Good job!'
+        end
+
+        trigger.action.outTextForCoalition(BLUE, text, 20)
     end
 
     function EscalationManager.addPlayerSupportItem(id, name, cost, actionFunc)
@@ -967,8 +1012,10 @@ do
                     end
                 else
                     EscalationManager.playerFunds = EscalationManager.playerFunds - item.cost
-                    trigger.action.outTextForCoalition(BLUE, 'Bought ' .. item.name .. ' for ' .. item.cost .. '\n ' ..
-                        EscalationManager.playerFunds .. ' credits remaining', 10)
+                    trigger.action.outTextForCoalition(BLUE,
+                        'Bought ' .. item.name .. ' for ' .. item.cost .. ' credits\n ' .. EscalationManager.playerFunds ..
+                            ' credits remaining', 10)
+                    EscalationManager.writeSave()
                 end
             else
                 trigger.action.outTextForCoalition(BLUE,
@@ -979,15 +1026,17 @@ do
     end
 
     function EscalationManager.refreshPlayerSupportItemsMenu()
-        missionCommands.removeItemForCoalition(BLUE, {'Support'})
+        if EscalationManager.playerSupportMenu then
+            missionCommands.removeItemForCoalition(BLUE, EscalationManager.playerSupportMenu)
+        end
 
-        local menu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
-        local submenu = menu
+        EscalationManager.playerSupportMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
+        local submenu = EscalationManager.playerSupportMenu
         local count = 0
         for id, item in pairs(EscalationManager.playerSupportItems) do
             count = count + 1
             if count == 10 then
-                submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More...', submenu)
+                submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More', submenu)
                 count = 0
             end
             missionCommands.addCommandForCoalition(BLUE, '[' .. item.cost .. '] ' .. item.name, submenu,
@@ -1019,7 +1068,7 @@ do
             if not targetZoneSide or zone.side == targetZoneSide then
                 count = count + 1
                 if count == 10 then
-                    submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More...', submenu)
+                    submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More', submenu)
                     count = 0
                 end
                 missionCommands.addCommandForCoalition(BLUE, zone.name, submenu, execute, zone.name)
@@ -1967,6 +2016,322 @@ do
             return nil
         end
         return time + 1
+    end
+end
+
+JTAC = {}
+do
+    JTAC.priorityTable = {
+        ['SAM'] = {'SAM SR', 'SAM TR', 'IR Guided SAM', 'SAM LL', 'SAM CC'},
+        ['Armor'] = {'Tanks', 'IFV', 'APC'},
+        ['Support'] = {'Unarmed vehicles', 'Artillery'},
+        ['Infantry'] = {'Infantry'}
+    }
+    JTAC.playTime = 60 * MINUTE
+
+    JTAC.group = ""
+    JTAC.zone = ""
+    JTAC.code = 1688
+    JTAC.topmenu = {}
+    JTAC.menu = nil
+    JTAC.target = nil
+    JTAC.targetPoint = nil
+    JTAC.priority = nil
+    JTAC.deployedAt = 0
+    JTAC.laser = nil
+    JTAC.irLaser = nil
+
+    function JTAC:new(targetzone, topmenu)
+        local obj = {
+            group = "",
+            zone = targetzone,
+            code = randomLaserCode(),
+            topmenu = topmenu,
+            menu = nil,
+            target = nil,
+            targetPoint = nil,
+            priority = 'SAM',
+            deployedAt = timer.getAbsTime(),
+            laser = nil,
+            irLaser = nil
+        }
+        if not EscalationManager.getZoneByName(targetzone) then
+            errorLog('Zone ' .. targetzone .. ' does not exists')
+        end
+        setmetatable(obj, self)
+        self.__index = self
+        return obj
+    end
+
+    function JTAC:init()
+        local groupdata = mist.dynAdd({
+            ["coalitionId"] = 2,
+            ["country"] = "usa",
+            ["units"] = {
+                [1] = {
+                    ["alt"] = 4572,
+                    ["heading"] = 0,
+                    ["alt_type"] = "BARO",
+                    ["y"] = 0,
+                    ["x"] = 0,
+                    ["type"] = "MQ-9 Reaper",
+                    ["payload"] = {
+                        ["pylons"] = {},
+                        ["fuel"] = 1300,
+                        ["flare"] = 0,
+                        ["chaff"] = 0,
+                        ["gun"] = 100
+                    },
+                    ["speed"] = 42
+                }
+            },
+            ["countryId"] = 2,
+            ["radioSet"] = false,
+            ["hidden"] = true,
+            ["category"] = "plane",
+            ["coalition"] = "blue",
+            ["startTime"] = 0,
+            ["task"] = "Reconnaissance",
+            ["uncontrolled"] = false
+        })
+        self.group = groupdata.name
+
+        timer.scheduleFunction(function()
+            mist.teleportInZone(self.group, self.zone)
+        end, nil, timer.getTime() + 1)
+        timer.scheduleFunction(function()
+            local gr = Group.getByName(self.group)
+            local zone = EscalationManager.getZoneByName(self.zone)
+            if gr and zone then
+                local ctr = gr:getController()
+                ctr:setCommand({
+                    id = 'SetInvisible',
+                    params = {
+                        value = true
+                    }
+                })
+                ctr:setTask({
+                    id = 'Orbit',
+                    params = {
+                        pattern = 'Circle',
+                        point = mist.utils.makeVec2(zone.point),
+                        speed = 42,
+                        altitude = 4572
+                    }
+                })
+            end
+        end, nil, timer.getTime() + 2)
+
+        trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is deployed.\n Playtime is ' ..
+            math.floor(JTAC.playTime / MINUTE) .. ' minutes', 10)
+
+        self.deployedAt = timer.getAbsTime()
+
+        self.menu = missionCommands.addSubMenuForCoalition(BLUE, self.zone .. ' JTAC', self.topmenu)
+
+        missionCommands.addCommandForCoalition(BLUE, 'JTAC Status', self.menu, self.printStatus, self)
+        missionCommands.addCommandForCoalition(BLUE, 'Target Report', self.menu, self.printTarget, self)
+        missionCommands.addCommandForCoalition(BLUE, 'Deploy Smoke', self.menu, self.smokeTarget, self)
+        local priorityMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Set Priority Target', self.menu)
+        for type, list in pairs(JTAC.priorityTable) do
+            missionCommands.addCommandForCoalition(BLUE, type, priorityMenu, self.setPriorityTarget, self, type)
+        end
+        missionCommands.addCommandForCoalition(BLUE, 'Remove Priority', priorityMenu, self.setPriorityTarget, self)
+
+        mist.scheduleFunction(self.checkAlive, {self}, timer.getTime() + 5, 5)
+        mist.scheduleFunction(self.searchTarget, {self}, timer.getTime() + 3, 5)
+    end
+
+    function JTAC:checkAlive()
+        if mist.groupIsDead(self.group) or timer.getAbsTime() - self.deployedAt > JTAC.playTime then
+            local gr = Group.getByName(self.group)
+            if gr then
+                trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is leaving airspace...', 10)
+                gr:destroy()
+            end
+            missionCommands.removeItemForCoalition(BLUE, self.menu)
+        end
+    end
+
+    function JTAC:searchTarget()
+        if self.target then
+            local unit = Unit.getByName(self.target)
+            if unit and unit:getLife() >= 1 then
+                local newPoint = unit:getPoint()
+                if mist.utils.get2DDist(self.targetPoint, newPoint) > 1 then
+                    self.targetPoint = newPoint
+                    self:lasePoint(newPoint)
+                end
+                return
+            end
+        end
+
+        if mist.groupIsDead(self.group) then
+            return
+        end
+
+        local zone = EscalationManager.getZoneByName(self.zone)
+        if not zone or zone.side ~= RED then
+            self.deployedAt = timer.getAbsTime() - JTAC.playTime
+            return
+        end
+
+        local targets = {}
+        for _, groupname in ipairs(zone:getCurrentGroups()) do
+            local gr = Group.getByName(groupname)
+            if gr then
+                for _, unit in ipairs(gr:getUnits()) do
+                    if unit:getLife() >= 1 then
+                        table.insert(targets, unit)
+                    end
+                end
+            end
+        end
+
+        if self.priority and JTAC.priorityTable[self.priority] then
+            local priorityTargets = {}
+            for _, unit in ipairs(targets) do
+                for _, attribute in ipairs(JTAC.priorityTable[self.priority]) do
+                    if unit:hasAttribute(attribute) then
+                        table.insert(priorityTargets, unit)
+                        break
+                    end
+                end
+            end
+
+            if #priorityTargets > 0 then
+                targets = priorityTargets
+            end
+        end
+
+        if #targets > 0 then
+            self:setTarget(targets[math.random(#targets)])
+        end
+    end
+
+    function JTAC:printStatus()
+        if mist.groupIsDead(self.group) then
+            trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is inoperable', 10)
+        end
+
+        local text = self.zone .. ' JTAC is operating'
+        if self.priority then
+            text = text .. '\n Priority Target: ' .. self.priority
+        end
+        if self.target then
+            local target = Unit.getByName(self.target)
+            if target then
+                text = text .. '\n Current Target: ' .. target:getTypeName()
+            end
+        end
+        text = text .. '\n Laser Code: ' .. self.code
+        text = text .. '\n Remaining Play Time: ' ..
+                   math.floor((JTAC.playTime + self.deployedAt - timer.getAbsTime()) / MINUTE) .. ' minutes'
+        trigger.action.outTextForCoalition(BLUE, text, 20)
+    end
+
+    function JTAC:printTarget()
+        if mist.groupIsDead(self.group) then
+            trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is inoperable', 10)
+            return
+        end
+
+        if self.target then
+            local target = Unit.getByName(self.target)
+            if target then
+                local targetPoint = target:getPoint()
+
+                local text = self.zone .. ' JTAC is Lasing ' .. target:getTypeName()
+                text = text .. '\n Code: ' .. self.code .. '\n'
+                local lat, lon, alt = coord.LOtoLL(targetPoint)
+                local mgrs = coord.LLtoMGRS(coord.LOtoLL(targetPoint))
+                text = text .. '\n DDM:  ' .. mist.tostringLL(lat, lon, 3)
+                text = text .. '\n DMS:  ' .. mist.tostringLL(lat, lon, 2, true)
+                text = text .. '\n MGRS: ' .. mist.tostringMGRS(mgrs, 5)
+                text = text .. '\n Alt: ' .. math.floor(alt) .. 'm' .. ' | ' .. math.floor(alt * 3.280839895) .. 'ft'
+                trigger.action.outTextForCoalition(BLUE, text, 60)
+                return
+            end
+        end
+        trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC does not have target', 10)
+    end
+
+    function JTAC:smokeTarget()
+        if mist.groupIsDead(self.group) then
+            trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is inoperable', 10)
+            return
+        end
+
+        if self.target then
+            local tgtunit = Unit.getByName(self.target)
+            if tgtunit then
+                trigger.action.smoke(tgtunit:getPoint(), trigger.smokeColor.Orange)
+                trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC marked the target with ORANGE smoke', 10)
+                return
+            end
+        end
+        trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC does not have target', 10)
+    end
+
+    function JTAC:setPriorityTarget(type)
+        if mist.groupIsDead(self.group) then
+            trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is inoperable', 10)
+            return
+        end
+
+        if type then
+            if JTAC.priorityTable[type] then
+                self.priority = type
+                trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC now prioritize ' .. type, 10)
+            else
+                trigger.action.outTextForCoalition(BLUE, 'Invalid JTAC target ' .. type, 10)
+            end
+        else
+            self.priority = nil
+            trigger.action.outTextForCoalition(BLUE, 'Removed priority from ' .. self.zone .. ' JTAC', 10)
+        end
+    end
+
+    function JTAC:removeLasers()
+        if self.laser then
+            self.laser:destroy()
+            self.laser = nil
+        end
+        if self.irLaser then
+            self.irLaser:destroy()
+            self.irLaser = nil
+        end
+    end
+
+    function JTAC:lasePoint(point)
+        self:removeLasers()
+
+        local gr = Group.getByName(self.group)
+        if not gr then
+            return
+        end
+        local me = gr:getUnit(1)
+        if not me then
+            return
+        end
+
+        self.laser = Spot.createLaser(me, {
+            x = 0,
+            y = 2,
+            z = 0
+        }, point, self.code)
+        self.irLaser = Spot.createInfraRed(me, {
+            x = 0,
+            y = 2,
+            z = 0
+        }, point)
+    end
+
+    function JTAC:setTarget(target)
+        self.target = target:getName()
+        self.targetPoint = target:getPoint()
+        self:lasePoint(self.targetPoint)
+        self:printTarget()
     end
 end
 
