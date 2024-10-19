@@ -267,13 +267,17 @@ do
                     end
                 elseif event.id == world.event.S_EVENT_BIRTH then
                     if side == BLUE then
+                        local unclaimed = EscalationManager.playerUnclaimedPoints[pname]
+                        if unclaimed and unclaimed > 0 then
+                            trigger.action.outTextForGroup(groupid, 'You lost ' .. unclaimed .. ' unclaimed credits', 5)
+                        end
                         EscalationManager.playerUnclaimedPoints[pname] = 0
                     end
 
                     local pos = event.initiator:getPoint()
                     local zone = EscalationManager.getZoneByPoint(pos)
                     if zone and zone.side ~= side then
-                        trigger.action.outTextForGroup(gr:getID(), 'Can not spawn in hostile or neutral zone', 5)
+                        trigger.action.outTextForGroup(groupid, 'Can not spawn in hostile or neutral zone', 5)
                         trigger.action.explosion(event.initiator:getPoint(), 5)
                         -- FIXME: crashes server
                         -- event.initiator:destroy()
@@ -2105,7 +2109,7 @@ do
     JTAC.group = ""
     JTAC.zone = ""
     JTAC.code = 1688
-    JTAC.topmenu = {}
+    JTAC.topmenu = nil
     JTAC.menu = nil
     JTAC.target = nil
     JTAC.targetPoint = nil
