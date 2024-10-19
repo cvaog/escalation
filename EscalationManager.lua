@@ -2025,21 +2025,21 @@ do
 
     function HercCargoDropSupply.onEvent(event)
         if event.id == world.event.S_EVENT_SHOT then
-            local name = event.weapon:getDesc().typeName
-            if HercCargoDropSupply.allowedCargo[name] then
-                local alt = getAGL(event.weapon)
-                if alt < 5 then
-                    HercCargoDropSupply.processCargo(event)
-                else
-                    timer.scheduleFunction(HercCargoDropSupply.checkCargo, event, timer.getTime() + 1)
+            if event.weapon and event.weapon.getDesc and event.weapon:getDesc() then
+                local name = event.weapon:getDesc().typeName
+                if HercCargoDropSupply.allowedCargo[name] then
+                    local alt = getAGL(event.weapon)
+                    if alt < 5 then
+                        HercCargoDropSupply.processCargo(event)
+                    else
+                        timer.scheduleFunction(HercCargoDropSupply.checkCargo, event, timer.getTime() + 1)
+                    end
                 end
             end
-        end
-
-        if event.id == world.event.S_EVENT_TAKEOFF then
-            if event.initiator and event.initiator:getDesc().typeName == 'Hercules' then
+        elseif event.id == world.event.S_EVENT_TAKEOFF then
+            if event.initiator and event.initiator.getDesc and event.initiator:getDesc() and
+                event.initiator:getDesc().typeName == 'Hercules' then
                 local herc = HercCargoDropSupply.herculesRegistry[event.initiator:getName()]
-
                 local zn = EscalationManager.getZoneByPoint(event.initiator:getPoint())
                 if zn then
                     if not herc then
@@ -2049,13 +2049,11 @@ do
                     elseif not herc.lastlanded or (herc.lastlanded + 30) < timer.getTime() then
                         HercCargoDropSupply.herculesRegistry[event.initiator:getName()].takeoffzone = zn.name
                     end
-
                 end
             end
-        end
-
-        if event.id == world.event.S_EVENT_LAND then
-            if event.initiator and event.initiator:getDesc().typeName == 'Hercules' then
+        elseif event.id == world.event.S_EVENT_LAND then
+            if event.initiator and event.initiator.getDesc and event.initiator:getDesc() and
+                event.initiator:getDesc().typeName == 'Hercules' then
                 local herc = HercCargoDropSupply.herculesRegistry[event.initiator:getName()]
 
                 if not herc then
