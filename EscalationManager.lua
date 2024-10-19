@@ -33,6 +33,14 @@ local function contains(t, i)
     return false
 end
 
+local function getTableSize(t)
+    local i = 0
+    for _, _ in pairs(t) do
+        i = i + 1
+    end
+    return i
+end
+
 local function split(inputstr, sep)
     if sep == nil then
         sep = '%s'
@@ -578,15 +586,15 @@ do
                 to = from
             })
         end
-        if EscalationManager.zoneIndexTable[from.name] then
-            table.insert(EscalationManager.zoneIndexTable[from.name], to)
+        if EscalationManager.connectionIndexTable[from.name] then
+            table.insert(EscalationManager.connectionIndexTable[from.name], to)
         else
-            EscalationManager.zoneIndexTable[from.name] = {to}
+            EscalationManager.connectionIndexTable[from.name] = {to}
         end
-        if EscalationManager.zoneIndexTable[to.name] then
-            table.insert(EscalationManager.zoneIndexTable[to.name], from)
+        if EscalationManager.connectionIndexTable[to.name] then
+            table.insert(EscalationManager.connectionIndexTable[to.name], from)
         else
-            EscalationManager.zoneIndexTable[to.name] = {from}
+            EscalationManager.connectionIndexTable[to.name] = {from}
         end
     end
 
@@ -651,6 +659,7 @@ do
         missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
             EscalationManager.printPossibleIncomes)
         missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu, EscalationManager.printScoreboards)
+        EscalationManager.playerSupportMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
         EscalationManager.jtacMenu = missionCommands.addSubMenuForCoalition(BLUE, 'JTAC')
     end
 
@@ -784,9 +793,8 @@ do
                         awacsCtr:knowTarget(gr)
                     else
                         local ctr = gr:getController()
-                        ctr:popTask()
                         if group.type == 'patrol' then
-                            ctr:pushTask({
+                            ctr:setTask({
                                 id = 'EngageTargets',
                                 params = {
                                     targetTypes = {'All'},
@@ -810,10 +818,12 @@ do
                                 }
                             })
                         elseif group.type == 'attack' then
-                            ctr:pushTask({
-                                id = 'EngageTargets',
+                            ctr:setTask({
+                                id = 'EngageTargetsInZone',
                                 params = {
                                     targetTypes = {'All'},
+                                    point = mist.utils.makeVec2(group.target.point),
+                                    zoneRadius = zone.radius,
                                     priority = 0
                                 }
                             })
@@ -937,7 +947,7 @@ do
     end
 
     function EscalationManager.getConnectedZones(zone)
-        return EscalationManager.zoneIndexTable[zone.name]
+        return EscalationManager.connectionIndexTable[zone.name]
     end
 
     function EscalationManager.getConflictZones()
@@ -1065,6 +1075,12 @@ do
             cost = cost,
             actionFunc = actionFunc
         }
+        if getTableSize(EscalationManager.playerSupportItems) % 10 == 0 then
+            EscalationManager.playerSupportMenu = missionCommands.addSubMenuForCoalition(BLUE, 'More',
+                EscalationManager.playerSupportMenu)
+        end
+        missionCommands.addCommandForCoalition(BLUE, '[' .. cost .. '] ' .. name, EscalationManager.playerSupportMenu,
+            EscalationManager.buyPlayerSupportItem, id)
     end
 
     function EscalationManager.buyPlayerSupportItem(id)
@@ -1090,25 +1106,6 @@ do
                     'Can not afford ' .. item.name .. '\n It costs ' .. item.cost .. ' but ' ..
                         EscalationManager.playerFunds .. ' credits remaining currently', 10)
             end
-        end
-    end
-
-    function EscalationManager.refreshPlayerSupportItemsMenu()
-        if EscalationManager.playerSupportMenu then
-            missionCommands.removeItemForCoalition(BLUE, EscalationManager.playerSupportMenu)
-        end
-
-        EscalationManager.playerSupportMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
-        local submenu = EscalationManager.playerSupportMenu
-        local count = 0
-        for id, item in pairs(EscalationManager.playerSupportItems) do
-            count = count + 1
-            if count == 10 then
-                submenu = missionCommands.addSubMenuForCoalition(BLUE, 'More', submenu)
-                count = 0
-            end
-            missionCommands.addCommandForCoalition(BLUE, '[' .. item.cost .. '] ' .. item.name, submenu,
-                EscalationManager.buyPlayerSupportItem, id)
         end
     end
 
@@ -1144,6 +1141,44 @@ do
         end
 
         return menu
+    end
+
+    function EscalationManager.spawnFriendlyAirAsset(targetzone, groupdata)
+        if type(targetzone) == 'string' then
+            targetzone = EscalationManager.getZoneByName(targetzone)
+        end
+        local friendlyZones = {}
+        for _, zone in ipairs(EscalationManager.zones) do
+            if zone.side == BLUE then
+                table.insert(friendlyZones, zone)
+            end
+        end
+
+        if #friendlyZones == 0 then
+            return nil
+        end
+
+        local originzone = friendlyZones[math.random(#friendlyZones)]
+
+        local v = mist.vec.getUnitVec(mist.vec.sub(originzone.point, targetzone.point))
+        local distv = mist.vec.scalarMult(v, 111120)
+        local spawnpoint = mist.utils.makeVec2(mist.vec.add(targetzone.point, distv))
+        local heading = mist.utils.getDir(mist.vec.scalarMult(v, -1))
+
+        local diff = {
+            x = spawnpoint.x - groupdata.units[1].x,
+            y = spawnpoint.y - groupdata.units[1].y
+        }
+        local newgroupdata = mist.utils.deepCopy(groupdata)
+        for _, unitdata in ipairs(newgroupdata.units) do
+            unitdata.x = unitdata.x + diff.x
+            unitdata.y = unitdata.y + diff.y
+            unitdata.heading = heading
+        end
+
+        newgroupdata = mist.dynAdd(newgroupdata)
+
+        return Group.getByName(newgroupdata.name)
     end
 end
 
@@ -2156,16 +2191,29 @@ do
     end
 
     function JTAC:init()
+        local targetzone = EscalationManager.getZoneByName(self.zone)
+        if not targetzone then
+            return
+        end
+
+        local randheading = math.random(math.pi * 2 * 100) / 100
+        local v = mist.utils.makeVec3(mist.vec.rotateVec2({
+            x = 0,
+            y = 1
+        }, randheading))
+        local distv = mist.vec.scalarMult(v, 9260)
+        local originpoint = mist.utils.makeVec2(mist.vec.sub(targetzone.point, distv))
+
         local groupdata = mist.dynAdd({
             ["coalitionId"] = 2,
             ["country"] = "usa",
             ["units"] = {
                 [1] = {
                     ["alt"] = 4572,
-                    ["heading"] = 0,
+                    ["heading"] = randheading,
                     ["alt_type"] = "BARO",
-                    ["y"] = 0,
-                    ["x"] = 0,
+                    ["x"] = originpoint.x,
+                    ["y"] = originpoint.y,
                     ["type"] = "MQ-9 Reaper",
                     ["payload"] = {
                         ["pylons"] = {},
@@ -2189,9 +2237,6 @@ do
         self.group = groupdata.name
 
         timer.scheduleFunction(function()
-            mist.teleportInZone(self.group, self.zone)
-        end, nil, timer.getTime() + 1)
-        timer.scheduleFunction(function()
             local gr = Group.getByName(self.group)
             local zone = EscalationManager.getZoneByName(self.zone)
             if gr and zone then
@@ -2212,7 +2257,7 @@ do
                     }
                 })
             end
-        end, nil, timer.getTime() + 2)
+        end, nil, timer.getTime() + 1)
 
         trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is deployed.\n Playtime is ' ..
             math.floor(JTAC.playTime / MINUTE) .. ' minutes', 10)
