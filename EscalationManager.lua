@@ -399,7 +399,7 @@ do
         end
     end
 
-    function EscalationManager.load()
+    function EscalationManager.loadZones()
         local connections = {}
         local index = RED
         for _, zone in ipairs(env.mission.triggers.zones) do
@@ -444,6 +444,7 @@ do
                 local level = 0
                 local income = 0
                 local canLoadSupplies = false
+                local disableRandomSpawn = false
                 local blueStations = {}
                 local blueSams = {}
                 local bluePatrols = {}
@@ -473,6 +474,8 @@ do
                             end
                         elseif key == 'canLoadSupplies' then
                             canLoadSupplies = value == 'true'
+                        elseif key == 'disableRandomSpawn' then
+                            disableRandomSpawn = value == 'true'
                         elseif key == 'blueStations' then
                             blueStations = split(value, ',')
                         elseif key == 'blueSams' then
@@ -502,6 +505,7 @@ do
                     level = level,
                     income = income,
                     canLoadSupplies = canLoadSupplies,
+                    disableRandomSpawn = disableRandomSpawn,
                     stations = {
                         [RED] = redStations,
                         [BLUE] = blueStations
@@ -593,7 +597,7 @@ do
             trigger.action.outText('Persistance disabled', 30)
         end
 
-        EscalationManager.load()
+        EscalationManager.loadZones()
         if persistenceEnabled then
             EscalationManager.loadSave()
         end
@@ -1157,6 +1161,8 @@ do
     Zone.side = 0
     Zone.level = 0
     Zone.income = 0
+    Zone.canLoadSupplies = nil
+    Zone.disableRandomSpawn = nil
     Zone.stations = {
         [RED] = {},
         [BLUE] = {}
@@ -1198,6 +1204,9 @@ do
         end
         if obj.canLoadSupplies == nil then
             obj.canLoadSupplies = false
+        end
+        if obj.disableRandomSpawn == nil then
+            obj.disableRandomSpawn = false
         end
         if not obj.stations then
             obj.stations = {
@@ -1331,13 +1340,21 @@ do
         trigger.action.setMarkupColor(2000 + self.index, zoneTextColor)
     end
 
+    function Zone:spawnGroup(groupname)
+        if self.disableRandomSpawn then
+            mist.respawnGroup(groupname, true)
+        else
+            mist.respawnInZone(groupname, self.name, true)
+        end
+    end
+
     function Zone:checkAndSpawnGroups()
         local isConflicting = self:isConflicting()
         for _, groupname in ipairs(self.sams[self.side]) do
             local deadUnits = self.deadUnits[groupname]
             if not isConflicting and deadUnits ~= true then
                 if mist.groupIsDead(groupname) then
-                    mist.respawnInZone(groupname, self.name, true)
+                    self:spawnGroup(groupname)
                     if deadUnits and #deadUnits > 0 then
                         local deadIndex = {}
                         for _, name in ipairs(deadUnits) do
@@ -1365,7 +1382,7 @@ do
             local deadUnits = self.deadUnits[groupname]
             if isConflicting and i <= self.level and deadUnits ~= true then
                 if mist.groupIsDead(groupname) then
-                    mist.respawnInZone(groupname, self.name, true)
+                    self:spawnGroup(groupname)
                     if deadUnits and #deadUnits > 0 then
                         local deadIndex = {}
                         for _, name in ipairs(deadUnits) do
@@ -1465,7 +1482,7 @@ do
             if i <= self.level then
                 local group = Group.getByName(groupname)
                 if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
-                    mist.respawnInZone(groupname, self.name, true)
+                    self:spawnGroup(groupname)
                     self.deadUnits[groupname] = {}
                     return true
                 end
@@ -1479,7 +1496,7 @@ do
         for i, groupname in ipairs(self.sams[self.side]) do
             local group = Group.getByName(groupname)
             if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
-                mist.respawnInZone(groupname, self.name, true)
+                self:spawnGroup(groupname)
                 self.deadUnits[groupname] = {}
                 return true
             end
