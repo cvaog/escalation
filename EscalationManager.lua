@@ -211,6 +211,7 @@ do
     EscalationManager.playerSupportItems = {}
     EscalationManager.playerSupportMenu = nil
     EscalationManager.playerScoreboards = {}
+    EscalationManager.jtacMenu = nil
 
     function EscalationManager.objectToRewardPoints(object)
         local earnings = EscalationManager.rewardTable.default
@@ -629,11 +630,11 @@ do
             mist.scheduleFunction(EscalationManager.writeSave, {}, timer.getTime() + 30, 30)
         end
 
-        mist.scheduleFunction(EscalationManager.printMissionTime, {}, 30 * MINUTE, 30 * MINUTE)
+        mist.scheduleFunction(EscalationManager.printMissionTime, {}, 30 * MINUTE - 5, 30 * MINUTE)
 
         timer.scheduleFunction(function()
             trigger.action.outText('Mission is restarting now...')
-        end, nil, EscalationManager.missionTime - MINUTE)
+        end, nil, EscalationManager.missionTime - MINUTE - 5)
         timer.scheduleFunction(function()
             EscalationManager.writeSave()
             net.load_next_mission()
@@ -646,16 +647,17 @@ do
         missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
             EscalationManager.printPossibleIncomes)
         missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu, EscalationManager.printScoreboards)
+        EscalationManager.jtacMenu = missionCommands.addSubMenuForCoalition(BLUE, 'JTAC')
     end
 
     function EscalationManager.printMissionTime()
         local left = EscalationManager.missionTime - timer.getTime()
-        if left > 60 * MINUTE then
-            local hours = math.floor(left / (60 * MINUTE))
-            trigger.action.outText('Mission will be restarted in ' .. hours .. ' hours')
+        local hours = math.floor(left / (60 * MINUTE))
+        local minutes = math.floor(left / MINUTE) % 60
+        if hours > 0 then
+            trigger.action.outText('Mission will be restarted in ' .. hours .. ' hours ' .. minutes .. ' minutes', 10)
         else
-            local minutes = math.floor(left / MINUTE)
-            trigger.action.outText('Mission will be restarted in ' .. minutes .. ' minutes')
+            trigger.action.outText('Mission will be restarted in ' .. minutes .. ' minutes', 10)
         end
     end
 
@@ -2109,7 +2111,6 @@ do
     JTAC.group = ""
     JTAC.zone = ""
     JTAC.code = 1688
-    JTAC.topmenu = nil
     JTAC.menu = nil
     JTAC.target = nil
     JTAC.targetPoint = nil
@@ -2118,12 +2119,11 @@ do
     JTAC.laser = nil
     JTAC.irLaser = nil
 
-    function JTAC:new(targetzone, topmenu)
+    function JTAC:new(targetzone)
         local obj = {
             group = "",
             zone = targetzone,
             code = randomLaserCode(),
-            topmenu = topmenu,
             menu = nil,
             target = nil,
             targetPoint = nil,
@@ -2204,7 +2204,7 @@ do
 
         self.deployedAt = timer.getAbsTime()
 
-        self.menu = missionCommands.addSubMenuForCoalition(BLUE, self.zone .. ' JTAC', self.topmenu)
+        self.menu = missionCommands.addSubMenuForCoalition(BLUE, self.zone .. ' JTAC', EscalationManager.jtacMenu)
 
         missionCommands.addCommandForCoalition(BLUE, 'JTAC Status', self.menu, self.printStatus, self)
         missionCommands.addCommandForCoalition(BLUE, 'Target Report', self.menu, self.printTarget, self)

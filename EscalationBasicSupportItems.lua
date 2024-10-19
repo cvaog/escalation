@@ -73,7 +73,6 @@ EscalationManager.addPlayerSupportItem('smoke', 'Smoke markers', 50, function(se
     trigger.action.outTextForCoalition(BLUE, 'Smoke marker is prepared. Choose zone from F10 menu', 10)
 end)
 
-local jtacTopMenu = missionCommands.addSubMenuForCoalition(BLUE, 'JTAC')
 local jtacTargetMenu = nil
 EscalationManager.addPlayerSupportItem('jtac', 'Deploy JTAC', 100, function(sender)
     if jtacTargetMenu then
@@ -82,7 +81,7 @@ EscalationManager.addPlayerSupportItem('jtac', 'Deploy JTAC', 100, function(send
 
     jtacTargetMenu = EscalationManager.showZoneTargetingMenu('Select JTAC deployment zone', function(zone)
         if zone.side == RED then
-            local jtac = JTAC:new(zone.name, jtacTopMenu)
+            local jtac = JTAC:new(zone.name)
             jtac:init()
         else
             return zone.name .. ' is not hostile'
