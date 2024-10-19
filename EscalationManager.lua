@@ -823,7 +823,7 @@ do
                                 params = {
                                     targetTypes = {'All'},
                                     point = mist.utils.makeVec2(group.target.point),
-                                    zoneRadius = zone.radius,
+                                    zoneRadius = group.target.radius,
                                     priority = 0
                                 }
                             })
