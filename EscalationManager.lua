@@ -645,11 +645,11 @@ do
         mist.scheduleFunction(EscalationManager.printMissionTime, {}, 30 * MINUTE - 5, 30 * MINUTE)
 
         timer.scheduleFunction(function()
-            trigger.action.outText('Mission is restarting now...')
+            trigger.action.outText('Mission is restarting now...', 60)
         end, nil, EscalationManager.missionTime - MINUTE - 5)
         timer.scheduleFunction(function()
             EscalationManager.writeSave()
-            net.load_next_mission()
+            net.dostring_in('gui', '_G.net.load_next_mission()')
         end, nil, EscalationManager.missionTime - 5)
 
         missionCommands.addCommand('Check Mission Time', nil, EscalationManager.printMissionTime)
