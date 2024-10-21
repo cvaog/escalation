@@ -3,13 +3,28 @@ local RED = 1
 local MINUTE = 60
 
 local function debugLog(text)
-    trigger.action.outText('DEBUG: ' .. tostring(text), 5)
-    env.info('ESCALATION DEBUG: ' .. tostring(text))
+    text = tostring(text)
+    trigger.action.outText('DEBUG: ' .. text, 5)
+    env.info('ESCALATION DEBUG: ' .. text)
 end
 
 local function errorLog(text)
-    trigger.action.outText('ERROR: ' .. tostring(text), 30)
-    env.error('ESCALATION ERROR: ' .. tostring(text))
+    text = tostring(text)
+    trigger.action.outText('ERROR: ' .. text, 30)
+    env.error('ESCALATION ERROR: ' .. text)
+end
+
+local function protectedCall(...)
+    local ok, msg = pcall(...)
+    if not ok then
+        errorLog(msg)
+    end
+end
+
+local function wrapWithProtectedCall(func)
+    return function(...)
+        protectedCall(func, ...)
+    end
 end
 
 local function concat(...)
@@ -220,33 +235,36 @@ do
     EscalationManager.playerSupportMenu = nil
     EscalationManager.playerScoreboards = {}
     EscalationManager.jtacMenu = nil
+    EscalationManager.registeredKills = {}
 
     function EscalationManager.objectToRewardPoints(object)
         local earnings = EscalationManager.rewardTable.default
         local message = 'Kill unit'
 
-        if object:hasAttribute('Planes') and EscalationManager.rewardTable.airplane then
-            earnings = EscalationManager.rewardTable.airplane
-            message = 'Splash aircraft'
-        elseif object:hasAttribute('Helicopters') and EscalationManager.rewardTable.helicopter then
-            earnings = EscalationManager.rewardTable.helicopter
-            message = 'Splash helicopter'
-        elseif object:hasAttribute('Infantry') and EscalationManager.rewardTable.infantry then
-            earnings = EscalationManager.rewardTable.infantry
-            message = 'Shack infantry'
-        elseif (object:hasAttribute('SAM SR') or object:hasAttribute('SAM TR') or object:hasAttribute('IR Guided SAM')) and
-            EscalationManager.rewardTable.sam then
-            earnings = EscalationManager.rewardTable.sam
-            message = 'Shack SAM'
-        elseif object:hasAttribute('Ships') and EscalationManager.rewardTable.ship then
-            earnings = EscalationManager.rewardTable.ship
-            message = 'Shack ship'
-        elseif object:hasAttribute('Ground Units') then
-            earnings = EscalationManager.rewardTable.ground
-            message = 'Shack vehicle'
-        elseif object:hasAttribute('Buildings') and EscalationManager.rewardTable.building then
-            earnings = EscalationManager.rewardTable.building
-            message = 'Shack building'
+        if object.hasAttribute then
+            if object:hasAttribute('Planes') and EscalationManager.rewardTable.airplane then
+                earnings = EscalationManager.rewardTable.airplane
+                message = 'Splash aircraft'
+            elseif object:hasAttribute('Helicopters') and EscalationManager.rewardTable.helicopter then
+                earnings = EscalationManager.rewardTable.helicopter
+                message = 'Splash helicopter'
+            elseif object:hasAttribute('Infantry') and EscalationManager.rewardTable.infantry then
+                earnings = EscalationManager.rewardTable.infantry
+                message = 'Shack infantry'
+            elseif (object:hasAttribute('SAM SR') or object:hasAttribute('SAM TR') or
+                object:hasAttribute('IR Guided SAM')) and EscalationManager.rewardTable.sam then
+                earnings = EscalationManager.rewardTable.sam
+                message = 'Shack SAM'
+            elseif object:hasAttribute('Ships') and EscalationManager.rewardTable.ship then
+                earnings = EscalationManager.rewardTable.ship
+                message = 'Shack ship'
+            elseif object:hasAttribute('Ground Units') then
+                earnings = EscalationManager.rewardTable.ground
+                message = 'Shack vehicle'
+            elseif object:hasAttribute('Buildings') and EscalationManager.rewardTable.building then
+                earnings = EscalationManager.rewardTable.building
+                message = 'Shack building'
+            end
         end
 
         return earnings, message
@@ -286,7 +304,7 @@ do
                     local pos = event.initiator:getPoint()
                     local zone = EscalationManager.getZoneByPoint(pos)
                     if zone and zone.side ~= side then
-                        trigger.action.outTextForGroup(groupid, 'Can not spawn in hostile or neutral zone', 5)
+                        trigger.action.outTextForGroup(groupid, 'Can not spawn in hostile or neutral zone', 20)
                         trigger.action.explosion(event.initiator:getPoint(), 5)
                         -- FIXME: crashes server
                         -- event.initiator:destroy()
@@ -299,25 +317,7 @@ do
                         -- end
                     end
                 elseif event.id == world.event.S_EVENT_KILL then
-                    if side == BLUE then
-                        if event.target.getCoalition then
-                            local targetSide = event.target:getCoalition()
-                            if targetSide ~= side and targetSide ~= 0 then
-                                local earnings, message = EscalationManager.objectToRewardPoints(event.target)
-                                if earnings and message then
-                                    trigger.action.outTextForGroup(groupid, message .. '\n +' .. earnings ..
-                                        ' credits (unclaimed)', 5)
-                                    if not EscalationManager.playerUnclaimedPoints[pname] then
-                                        EscalationManager.playerUnclaimedPoints[pname] = earnings
-                                    else
-                                        EscalationManager.playerUnclaimedPoints[pname] =
-                                            EscalationManager.playerUnclaimedPoints[pname] + earnings
-                                    end
-                                end
-                            else
-                            end
-                        end
-                    end
+                    EscalationManager.registerKill(event.initiator, event.target)
                     if event.target.getCoalition and event.target:getCoalition() == side then
                         if event.target.getPlayerName and event.target:getPlayerName() then
                             trigger.action.outText('Friendly fire!\n ' .. pname .. ' killed ' ..
@@ -621,44 +621,42 @@ do
             trigger.action.lineToAll(-1, 1000 + i, conn.from.point, conn.to.point, {1, 1, 1, 0.5}, 2)
         end
 
-        local ev = {}
-        function ev:onEvent(event)
-            EscalationManager.onEvent(event)
-        end
-        world.addEventHandler(ev)
+        mist.addEventHandler(wrapWithProtectedCall(EscalationManager.onEvent))
         timer.scheduleFunction(EscalationManager.spawnBlueDispatches, nil,
             timer.getTime() + math.random(5 * MINUTE, 10 * MINUTE))
         timer.scheduleFunction(EscalationManager.spawnRedDispatches, nil,
             timer.getTime() + math.random(5 * MINUTE, 10 * MINUTE))
         timer.scheduleFunction(function()
-            EscalationManager.autoRepair(BLUE)
+            protectedCall(EscalationManager.autoRepair, BLUE)
         end, nil, timer.getTime() + math.random(40 * MINUTE, 80 * MINUTE))
         timer.scheduleFunction(function()
-            EscalationManager.autoRepair(RED)
+            protectedCall(EscalationManager.autoRepair, RED)
         end, nil, timer.getTime() + math.random(40 * MINUTE, 80 * MINUTE))
-        mist.scheduleFunction(EscalationManager.checkDispatches, {}, timer.getTime() + 5, 5)
-        mist.scheduleFunction(EscalationManager.addIncomes, {}, timer.getTime() + 60, 60)
+        mist.scheduleFunction(wrapWithProtectedCall(EscalationManager.checkDispatches), {}, timer.getTime() + 5, 5)
+        mist.scheduleFunction(wrapWithProtectedCall(EscalationManager.addIncomes), {}, timer.getTime() + 60, 60)
         if persistenceEnabled then
-            mist.scheduleFunction(EscalationManager.writeSave, {}, timer.getTime() + 30, 30)
+            mist.scheduleFunction(wrapWithProtectedCall(EscalationManager.writeSave), {}, timer.getTime() + 30, 30)
         end
 
-        mist.scheduleFunction(EscalationManager.printMissionTime, {}, 30 * MINUTE - 5, 30 * MINUTE)
+        mist.scheduleFunction(wrapWithProtectedCall(EscalationManager.printMissionTime), {}, 30 * MINUTE - 5,
+            30 * MINUTE)
 
-        timer.scheduleFunction(function()
+        mist.scheduleFunction(wrapWithProtectedCall(function()
             trigger.action.outText('Mission is restarting now...', 60)
-        end, nil, EscalationManager.missionTime - MINUTE - 5)
-        timer.scheduleFunction(function()
+        end), {}, EscalationManager.missionTime - MINUTE - 5)
+        mist.scheduleFunction(wrapWithProtectedCall(function()
             EscalationManager.writeSave()
             net.dostring_in('gui', '_G.net.load_next_mission()')
-        end, nil, EscalationManager.missionTime - 5)
+        end), {}, EscalationManager.missionTime - 5)
 
         missionCommands.addCommand('Check Mission Time', nil, EscalationManager.printMissionTime)
         local economyMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Economy')
         missionCommands.addCommandForCoalition(BLUE, 'Economy Overview', economyMenu,
-            EscalationManager.printEconomyOverview)
+            wrapWithProtectedCall(EscalationManager.printEconomyOverview))
         missionCommands.addCommandForCoalition(BLUE, 'Possible Incomes', economyMenu,
-            EscalationManager.printPossibleIncomes)
-        missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu, EscalationManager.printScoreboards)
+            wrapWithProtectedCall(EscalationManager.printPossibleIncomes))
+        missionCommands.addCommandForCoalition(BLUE, 'Scoreboards', economyMenu,
+            wrapWithProtectedCall(EscalationManager.printScoreboards))
         EscalationManager.playerSupportMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Support')
         EscalationManager.jtacMenu = missionCommands.addSubMenuForCoalition(BLUE, 'JTAC')
     end
@@ -749,7 +747,7 @@ do
             group.lastStateTime = timer.getAbsTime()
             table.insert(activeDispatches, group)
             mist.respawnGroup(group.name)
-            timer.scheduleFunction(function()
+            timer.scheduleFunction(wrapWithProtectedCall(function()
                 local gr = Group.getByName(group.name)
                 if gr then
                     local isGround = gr:getCategory() == Group.Category.GROUND
@@ -839,19 +837,19 @@ do
                         end
                     end
                 end
-            end, nil, timer.getTime() + 1)
+            end), nil, timer.getTime() + 1)
         end
     end
 
     function EscalationManager.spawnBlueDispatches()
         local shouldSpawnCount = math.max(2, 5 - math.floor(getPlayerCount() / 3))
-        EscalationManager.spawnDispatches(BLUE, shouldSpawnCount)
+        protectedCall(EscalationManager.spawnDispatches, BLUE, shouldSpawnCount)
         return timer.getTime() + math.random(5 * MINUTE, 10 * MINUTE)
     end
 
     function EscalationManager.spawnRedDispatches()
         local shouldSpawnCount = math.floor(getPlayerCount() / 3) + 2
-        EscalationManager.spawnDispatches(RED, shouldSpawnCount)
+        protectedCall(EscalationManager.spawnDispatches, RED, shouldSpawnCount)
         return timer.getTime() + math.random(10 * MINUTE, 20 * MINUTE)
     end
 
@@ -1180,6 +1178,47 @@ do
 
         return Group.getByName(newgroupdata.name)
     end
+
+    function EscalationManager.registerKill(initiator, target)
+        if type(initiator) == 'string' then
+            initiator = Unit.getByName(initiator)
+        end
+        if not initiator then
+            return
+        end
+        local pname = initiator:getPlayerName()
+        if not pname or initiator:getCoalition() ~= BLUE or not target.getCoalition or target:getCoalition() ~= RED then
+            return
+        end
+        local gr = initiator:getGroup()
+        if not gr then
+            return
+        end
+        local gid = gr:getID()
+        local earnings, message = EscalationManager.objectToRewardPoints(target)
+        if earnings and message then
+            trigger.action.outTextForGroup(gid, message .. '\n +' .. earnings .. ' credits (unclaimed)', 5)
+            if not EscalationManager.playerUnclaimedPoints[pname] then
+                EscalationManager.playerUnclaimedPoints[pname] = earnings
+            else
+                EscalationManager.playerUnclaimedPoints[pname] =
+                    EscalationManager.playerUnclaimedPoints[pname] + earnings
+            end
+        end
+        if target.getID and target:getID() then
+            EscalationManager.registeredKills[target:getID()] = true
+        end
+    end
+
+    function EscalationManager.registerCollateralDamage(initiator, target)
+        if not target or not target.getID or not target:getID() then
+            return
+        end
+        if EscalationManager.registeredKills[target:getID()] == true then
+            return
+        end
+        EscalationManager.registerKill(initiator, target)
+    end
 end
 
 Zone = {}
@@ -1337,7 +1376,7 @@ do
             .textToAll(-1, 2000 + self.index, self.point, zoneTextColor, zoneTextBackgroundColor, 20, true, '')
         trigger.action.setMarkupText(2000 + self.index, self.name)
 
-        timer.scheduleFunction(function()
+        mist.scheduleFunction(wrapWithProtectedCall(function()
             local groupLists = {self.sams[BLUE], self.sams[RED], self.stations[BLUE], self.stations[RED],
                                 self.patrols[BLUE], self.patrols[RED], self.attacks[BLUE], self.attacks[RED],
                                 self.supplies[BLUE], self.supplies[RED]}
@@ -1350,12 +1389,10 @@ do
                     end
                 end
             end
-        end, nil, timer.getTime() + 1)
-        timer.scheduleFunction(function()
-            self:checkAndSpawnGroups()
-        end, nil, timer.getTime() + 2)
+        end), {}, timer.getTime() + 1)
+        mist.scheduleFunction(wrapWithProtectedCall(self.checkAndSpawnGroups), {self}, timer.getTime() + 2)
 
-        mist.scheduleFunction(self.checkDeadUnits, {self}, timer.getTime() + 10, 10)
+        mist.scheduleFunction(wrapWithProtectedCall(self.checkDeadUnits), {self}, timer.getTime() + 10, 10)
     end
 
     function Zone:updateColor()
@@ -1395,7 +1432,7 @@ do
                         for _, name in ipairs(deadUnits) do
                             deadIndex[name] = true
                         end
-                        timer.scheduleFunction(function()
+                        timer.scheduleFunction(wrapWithProtectedCall(function()
                             local gr = Group.getByName(groupname)
                             if gr then
                                 for _, unit in ipairs(gr:getUnits()) do
@@ -1404,7 +1441,7 @@ do
                                     end
                                 end
                             end
-                        end, nil, timer.getTime() + 1)
+                        end), nil, timer.getTime() + 1)
                     end
                 end
             else
@@ -1423,7 +1460,7 @@ do
                         for _, name in ipairs(deadUnits) do
                             deadIndex[name] = true
                         end
-                        timer.scheduleFunction(function()
+                        timer.scheduleFunction(wrapWithProtectedCall(function()
                             local gr = Group.getByName(groupname)
                             if gr then
                                 for _, unit in ipairs(gr:getUnits()) do
@@ -1432,7 +1469,7 @@ do
                                     end
                                 end
                             end
-                        end, nil, timer.getTime() + 1)
+                        end), nil, timer.getTime() + 1)
                     end
                 end
             else
@@ -2044,11 +2081,7 @@ do
     end
 
     function LogisticsManager.init()
-        local ev = {}
-        function ev:onEvent(event)
-            LogisticsManager.onEvent(event)
-        end
-        world.addEventHandler(ev)
+        mist.addEventHandler(wrapWithProtectedCall(LogisticsManager.onEvent))
     end
 end
 
@@ -2067,7 +2100,8 @@ do
                     if alt < 5 then
                         HercCargoDropSupply.processCargo(event)
                     else
-                        timer.scheduleFunction(HercCargoDropSupply.checkCargo, event, timer.getTime() + 1)
+                        timer.scheduleFunction(wrapWithProtectedCall(HercCargoDropSupply.checkCargo), event,
+                            timer.getTime() + 1)
                     end
                 end
             end
@@ -2101,11 +2135,7 @@ do
     end
 
     function HercCargoDropSupply.init()
-        local ev = {}
-        function ev:onEvent(event)
-            HercCargoDropSupply.onEvent(event)
-        end
-        world.addEventHandler(ev)
+        mist.addEventHandler(wrapWithProtectedCall(HercCargoDropSupply.onEvent))
     end
 
     function HercCargoDropSupply.processCargo(shotevent)
@@ -2236,7 +2266,7 @@ do
         })
         self.group = groupdata.name
 
-        timer.scheduleFunction(function()
+        timer.scheduleFunction(wrapWithProtectedCall(function()
             local gr = Group.getByName(self.group)
             local zone = EscalationManager.getZoneByName(self.zone)
             if gr and zone then
@@ -2257,7 +2287,7 @@ do
                     }
                 })
             end
-        end, nil, timer.getTime() + 1)
+        end), nil, timer.getTime() + 1)
 
         trigger.action.outTextForCoalition(BLUE, self.zone .. ' JTAC is deployed.\n Playtime is ' ..
             math.floor(JTAC.playTime / MINUTE) .. ' minutes', 10)
@@ -2266,17 +2296,22 @@ do
 
         self.menu = missionCommands.addSubMenuForCoalition(BLUE, self.zone .. ' JTAC', EscalationManager.jtacMenu)
 
-        missionCommands.addCommandForCoalition(BLUE, 'JTAC Status', self.menu, self.printStatus, self)
-        missionCommands.addCommandForCoalition(BLUE, 'Target Report', self.menu, self.printTarget, self)
-        missionCommands.addCommandForCoalition(BLUE, 'Deploy Smoke', self.menu, self.smokeTarget, self)
+        missionCommands.addCommandForCoalition(BLUE, 'JTAC Status', self.menu, wrapWithProtectedCall(self.printStatus),
+            self)
+        missionCommands.addCommandForCoalition(BLUE, 'Target Report', self.menu,
+            wrapWithProtectedCall(self.printTarget), self)
+        missionCommands.addCommandForCoalition(BLUE, 'Deploy Smoke', self.menu, wrapWithProtectedCall(self.smokeTarget),
+            self)
         local priorityMenu = missionCommands.addSubMenuForCoalition(BLUE, 'Set Priority Target', self.menu)
         for type, list in pairs(JTAC.priorityTable) do
-            missionCommands.addCommandForCoalition(BLUE, type, priorityMenu, self.setPriorityTarget, self, type)
+            missionCommands.addCommandForCoalition(BLUE, type, priorityMenu,
+                wrapWithProtectedCall(self.setPriorityTarget), self, type)
         end
-        missionCommands.addCommandForCoalition(BLUE, 'Remove Priority', priorityMenu, self.setPriorityTarget, self)
+        missionCommands.addCommandForCoalition(BLUE, 'Remove Priority', priorityMenu,
+            wrapWithProtectedCall(self.setPriorityTarget), self)
 
-        mist.scheduleFunction(self.checkAlive, {self}, timer.getTime() + 5, 5)
-        mist.scheduleFunction(self.searchTarget, {self}, timer.getTime() + 3, 5)
+        mist.scheduleFunction(wrapWithProtectedCall(self.checkAlive), {self}, timer.getTime() + 5, 5)
+        mist.scheduleFunction(wrapWithProtectedCall(self.searchTarget), {self}, timer.getTime() + 3, 5)
     end
 
     function JTAC:checkAlive()
