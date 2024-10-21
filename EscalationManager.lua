@@ -1677,16 +1677,13 @@ do
             return
         end
 
-        local stations = self.stations[self.side]
-
-        local lastLevel = #stations
-        for i = #stations, 1, -1 do
-            local groupname = stations[i]
+        local lastLevel = 0
+        for i, groupname in ipairs(self.stations[self.side]) do
             local gr = Group.getByName(groupname)
             if not gr or mist.groupIsDead(groupname) then
-                lastLevel = i - 1
                 self.deadUnits[groupname] = true
             else
+                lastLevel = i
                 self.deadUnits[groupname] = {}
                 if gr:getSize() < gr:getInitialSize() then
                     local aliveTable = {}
