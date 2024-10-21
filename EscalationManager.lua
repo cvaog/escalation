@@ -1421,6 +1421,9 @@ do
     end
 
     function Zone:checkAndSpawnGroups()
+        if self.side == 0 then
+            return
+        end
         local isConflicting = self:isConflicting()
         for _, groupname in ipairs(self.sams[self.side]) do
             local deadUnits = self.deadUnits[groupname]
@@ -1500,7 +1503,7 @@ do
     end
 
     function Zone:isUpgradable()
-        return self.level < #self.stations[self.side]
+        return self.level < #(self.stations[self.side] or {})
     end
 
     function Zone:getCurrentGroups()
@@ -1511,7 +1514,7 @@ do
         else
             groupsToCheck = self.sams[self.side]
         end
-        for _, groupname in ipairs(groupsToCheck) do
+        for _, groupname in ipairs(groupsToCheck or {}) do
             if not mist.groupIsDead(groupname) then
                 table.insert(output, groupname)
             end
@@ -1520,7 +1523,7 @@ do
     end
 
     function Zone:isDegraded()
-        local stations = self.stations[self.side]
+        local stations = self.stations[self.side] or {}
 
         if self.level < #stations then
             return true
@@ -1539,7 +1542,7 @@ do
     end
 
     function Zone:isSamDegraded()
-        for _, groupname in ipairs(self.sams[self.side]) do
+        for _, groupname in ipairs(self.sams[self.side] or {}) do
             local group = Group.getByName(groupname)
             if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
                 return true
@@ -1550,7 +1553,7 @@ do
     end
 
     function Zone:tryRepair()
-        for i, groupname in ipairs(self.stations[self.side]) do
+        for i, groupname in ipairs(self.stations[self.side] or {}) do
             if i <= self.level then
                 local group = Group.getByName(groupname)
                 if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
@@ -1565,7 +1568,7 @@ do
     end
 
     function Zone:trySamRepair()
-        for i, groupname in ipairs(self.sams[self.side]) do
+        for i, groupname in ipairs(self.sams[self.side] or {}) do
             local group = Group.getByName(groupname)
             if mist.groupIsDead(groupname) or not group or group:getSize() < group:getInitialSize() then
                 self:spawnGroup(groupname)

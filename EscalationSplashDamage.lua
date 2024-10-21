@@ -277,8 +277,7 @@ local function onFoundObjectWithinBlastWave(obj, point, power, init)
         length = tmp
     end
     local surfaceDistance = distance - depth / 2
-    local scaledPowerFactor = 0.006 * power + 1
-    local intensity = (power * scaledPowerFactor) / (4 * 3.14 * surfaceDistance * surfaceDistance)
+    local intensity = power / (4 * 3.14 * surfaceDistance * surfaceDistance)
     local surfaceArea = length * height
     local damageForSurface = intensity * surfaceArea
     if damageForSurface > splashDamageOptions.cascadeDamageThreshold then
