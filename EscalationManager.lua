@@ -743,101 +743,9 @@ do
         local selectedGroups = randomPick(groupPool, spawnCount)
 
         for _, group in ipairs(selectedGroups) do
-            group.state = 'spawned'
+            group.state = 'preparing'
             group.lastStateTime = timer.getAbsTime()
             table.insert(activeDispatches, group)
-            mist.respawnGroup(group.name)
-            timer.scheduleFunction(wrapWithProtectedCall(function()
-                local gr = Group.getByName(group.name)
-                if gr then
-                    local isGround = gr:getCategory() == Group.Category.GROUND
-                    if isGround then
-                        if group.type == 'patrol' or group.type == 'attack' then
-                            local wp = mist.ground.buildWP(mist.getRandomPointInZone(group.target.name), 'On Road', 20)
-                            local patrolRoute = {}
-                            table.insert(patrolRoute, mist.ground.buildWP(mist.getRandomPointInZone(group.target.name)))
-                            table.insert(patrolRoute, mist.ground.buildWP(mist.getRandomPointInZone(group.target.name)))
-                            wp.task = {
-                                id = 'WrappedAction',
-                                params = {
-                                    action = {
-                                        id = 'Script',
-                                        params = {
-                                            command = 'mist.ground.patrolRoute(' .. mist.utils.oneLineSerialize({
-                                                gpData = group.name,
-                                                route = patrolRoute
-                                            }) .. ')'
-                                        }
-                                    }
-                                }
-                            }
-                            mist.goRoute(gr, {mist.ground.buildWP(mist.getLeadPos(gr), 'On Road', 20), wp})
-                        else
-                            mist.goRoute(gr, {mist.ground.buildWP(mist.getLeadPos(gr), 'On Road', 20),
-                                              mist.ground
-                                .buildWP(mist.getRandomPointInZone(group.target.name), 'On Road', 20)})
-                        end
-
-                        local awacs = Group.getByName('awacs') or Group.getByName('AWACS')
-                        if not awacs then
-                            return
-                        end
-                        local awacsUnit = awacs:getUnit(1)
-                        if not awacsUnit then
-                            return
-                        end
-                        local awacsCtr = awacsUnit:getController()
-
-                        awacsCtr:knowTarget(gr)
-                    else
-                        local ctr = gr:getController()
-                        if group.type == 'patrol' then
-                            ctr:setTask({
-                                id = 'EngageTargets',
-                                params = {
-                                    targetTypes = {'All'},
-                                    priority = 0
-                                }
-                            })
-                            ctr:pushTask({
-                                id = 'Orbit',
-                                params = {
-                                    pattern = 'Circle',
-                                    point = mist.utils.makeVec2(group.target.point),
-                                    speed = 257,
-                                    altitude = 7620
-                                }
-                            })
-                        elseif group.type == 'supply' then
-                            ctr:setTask({
-                                id = 'Land',
-                                params = {
-                                    point = mist.getRandomPointInZone(group.target.name)
-                                }
-                            })
-                        elseif group.type == 'attack' then
-                            ctr:setTask({
-                                id = 'EngageTargetsInZone',
-                                params = {
-                                    targetTypes = {'All'},
-                                    point = mist.utils.makeVec2(group.target.point),
-                                    zoneRadius = group.target.radius,
-                                    priority = 0
-                                }
-                            })
-                            ctr:pushTask({
-                                id = 'Orbit',
-                                params = {
-                                    pattern = 'Circle',
-                                    point = mist.utils.makeVec2(group.target.point),
-                                    speed = 154,
-                                    altitude = 1219
-                                }
-                            })
-                        end
-                    end
-                end
-            end), nil, timer.getTime() + 1)
         end
     end
 
@@ -850,7 +758,7 @@ do
     function EscalationManager.spawnRedDispatches()
         local shouldSpawnCount = math.floor(getPlayerCount() / 3) + 2
         protectedCall(EscalationManager.spawnDispatches, RED, shouldSpawnCount)
-        return timer.getTime() + math.random(10 * MINUTE, 20 * MINUTE)
+        return timer.getTime() + math.random(5 * MINUTE, 10 * MINUTE)
     end
 
     function EscalationManager.checkDispatches()
@@ -860,7 +768,107 @@ do
                 return false
             end
             local isGround = gr:getCategory() == Group.Category.GROUND
-            if group.state == 'spawned' then
+            if group.state == 'preparing' then
+                if timer.getAbsTime() - group.lastStateTime > 20 * MINUTE then
+                    mist.respawnGroup(group.name)
+                    timer.scheduleFunction(wrapWithProtectedCall(function()
+                        local gr = Group.getByName(group.name)
+                        if not gr then
+                            return
+                        end
+                        if isGround then
+                            if group.type == 'patrol' or group.type == 'attack' then
+                                local wp = mist.ground.buildWP(mist.getRandomPointInZone(group.target.name), 'On Road',
+                                    20)
+                                local patrolRoute = {}
+                                table.insert(patrolRoute,
+                                    mist.ground.buildWP(mist.getRandomPointInZone(group.target.name)))
+                                table.insert(patrolRoute,
+                                    mist.ground.buildWP(mist.getRandomPointInZone(group.target.name)))
+                                wp.task = {
+                                    id = 'WrappedAction',
+                                    params = {
+                                        action = {
+                                            id = 'Script',
+                                            params = {
+                                                command = 'mist.ground.patrolRoute(' .. mist.utils.oneLineSerialize({
+                                                    gpData = group.name,
+                                                    route = patrolRoute
+                                                }) .. ')'
+                                            }
+                                        }
+                                    }
+                                }
+                                mist.goRoute(gr, {mist.ground.buildWP(mist.getLeadPos(gr), 'On Road', 20), wp})
+                            else
+                                mist.goRoute(gr, {mist.ground.buildWP(mist.getLeadPos(gr), 'On Road', 20),
+                                                  mist.ground
+                                    .buildWP(mist.getRandomPointInZone(group.target.name), 'On Road', 20)})
+                            end
+
+                            local awacs = Group.getByName('awacs') or Group.getByName('AWACS')
+                            if not awacs then
+                                return
+                            end
+                            local awacsUnit = awacs:getUnit(1)
+                            if not awacsUnit then
+                                return
+                            end
+                            local awacsCtr = awacsUnit:getController()
+
+                            awacsCtr:knowTarget(gr)
+                        else
+                            local ctr = gr:getController()
+                            if group.type == 'patrol' then
+                                ctr:setTask({
+                                    id = 'EngageTargets',
+                                    params = {
+                                        targetTypes = {'All'},
+                                        priority = 0
+                                    }
+                                })
+                                ctr:pushTask({
+                                    id = 'Orbit',
+                                    params = {
+                                        pattern = 'Circle',
+                                        point = mist.utils.makeVec2(group.target.point),
+                                        speed = 257,
+                                        altitude = 7620
+                                    }
+                                })
+                            elseif group.type == 'supply' then
+                                ctr:setTask({
+                                    id = 'Land',
+                                    params = {
+                                        point = mist.getRandomPointInZone(group.target.name)
+                                    }
+                                })
+                            elseif group.type == 'attack' then
+                                ctr:setTask({
+                                    id = 'EngageTargetsInZone',
+                                    params = {
+                                        targetTypes = {'All'},
+                                        point = mist.utils.makeVec2(group.target.point),
+                                        zoneRadius = group.target.radius,
+                                        priority = 0
+                                    }
+                                })
+                                ctr:pushTask({
+                                    id = 'Orbit',
+                                    params = {
+                                        pattern = 'Circle',
+                                        point = mist.utils.makeVec2(group.target.point),
+                                        speed = 154,
+                                        altitude = 1219
+                                    }
+                                })
+                            end
+                        end
+                    end), nil, timer.getTime() + 1)
+                    group.state = 'spawned'
+                    group.lastStateTime = timer.getAbsTime()
+                end
+            elseif group.state == 'spawned' then
                 if isGround then
                     if not isGroupInZone(gr, group.from) then
                         group.state = 'inmission'
