@@ -1416,7 +1416,11 @@ do
         if self.disableRandomSpawn then
             mist.respawnGroup(groupname, true)
         else
-            mist.respawnInZone(groupname, self.name, true)
+            if trigger.misc.getZone(groupname) then
+                mist.respawnInZone(groupname, groupname, true)
+            else
+                mist.respawnInZone(groupname, self.name, true)
+            end
         end
     end
 
