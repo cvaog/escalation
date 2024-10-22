@@ -945,7 +945,7 @@ do
     end
 
     function EscalationManager.getConnectedZones(zone)
-        return EscalationManager.connectionIndexTable[zone.name]
+        return EscalationManager.connectionIndexTable[zone.name] or {}
     end
 
     function EscalationManager.getConflictZones()
