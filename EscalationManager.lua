@@ -756,9 +756,9 @@ do
     end
 
     function EscalationManager.spawnRedDispatches()
-        local shouldSpawnCount = math.floor(getPlayerCount() / 3) + 2
+        local shouldSpawnCount = math.floor(getPlayerCount() / 4) + 1
         protectedCall(EscalationManager.spawnDispatches, RED, shouldSpawnCount)
-        return timer.getTime() + math.random(5 * MINUTE, 10 * MINUTE)
+        return timer.getTime() + math.random(10 * MINUTE, 20 * MINUTE)
     end
 
     function EscalationManager.checkDispatches()
@@ -769,7 +769,7 @@ do
             end
             local isGround = gr:getCategory() == Group.Category.GROUND
             if group.state == 'preparing' then
-                if timer.getAbsTime() - group.lastStateTime > 20 * MINUTE then
+                if timer.getAbsTime() - group.lastStateTime > 30 * MINUTE then
                     mist.respawnGroup(group.name)
                     timer.scheduleFunction(wrapWithProtectedCall(function()
                         local gr = Group.getByName(group.name)
