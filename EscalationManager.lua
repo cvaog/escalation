@@ -219,7 +219,7 @@ do
         capture = 30,
         rescue = 100
     }
-    EscalationManager.missionTime = 6 * 60 * MINUTE
+    EscalationManager.missionTime = 10 * 60 * MINUTE
 
     EscalationManager.zones = {}
     EscalationManager.zoneIndexTable = {}
