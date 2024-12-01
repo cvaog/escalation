@@ -763,11 +763,6 @@ do
 
     function EscalationManager.checkDispatches()
         local keepFunc = function(group)
-            local gr = Group.getByName(group.name)
-            if mist.groupIsDead(group.name) or not gr then
-                return false
-            end
-            local isGround = gr:getCategory() == Group.Category.GROUND
             if group.state == 'preparing' then
                 if timer.getAbsTime() - group.lastStateTime > 30 * MINUTE then
                     mist.respawnGroup(group.name)
@@ -776,6 +771,7 @@ do
                         if not gr then
                             return
                         end
+                        local isGround = gr:getCategory() == Group.Category.GROUND
                         if isGround then
                             if group.type == 'patrol' or group.type == 'attack' then
                                 local wp = mist.ground.buildWP(mist.getRandomPointInZone(group.target.name), 'On Road',
@@ -868,7 +864,16 @@ do
                     group.state = 'spawned'
                     group.lastStateTime = timer.getAbsTime()
                 end
-            elseif group.state == 'spawned' then
+                return true
+            end
+
+            local gr = Group.getByName(group.name)
+            if mist.groupIsDead(group.name) or not gr then
+                return false
+            end
+            local isGround = gr:getCategory() == Group.Category.GROUND
+
+            if group.state == 'spawned' then
                 if isGround then
                     if not isGroupInZone(gr, group.from) then
                         group.state = 'inmission'
